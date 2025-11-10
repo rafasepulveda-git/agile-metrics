@@ -1,0 +1,11 @@
+# Core dependencies
+pandas>=2.0.0
+openpyxl>=3.1.0
+xlsxwriter>=3.1.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+numpy>=1.24.0
+python-dateutil>=2.8.0
+
+# Optional dependencies for better performance
+# pyarrow>=12.0.0  # Faster pandas operations
