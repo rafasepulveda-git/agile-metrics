@@ -229,10 +229,32 @@ class DataProcessor:
             logger.info(f"Filtradas {filtered_count} filas (sprints no completados o inválidos)")
 
     def _add_month_mapping(self) -> None:
-        """Agrega el mapeo de sprints a meses."""
+        """Agrega el mapeo de sprints a meses usando coincidencia parcial."""
         logger.debug("Agregando mapeo de meses...")
 
-        self.df['Month'] = self.df['Sprint'].map(self.sprint_mapping)
+        def map_sprint_to_month(sprint_name: str) -> str:
+            """
+            Mapea un sprint a un mes buscando coincidencia parcial.
+
+            Args:
+                sprint_name: Nombre del sprint (ej: "Sprint 8 FIDSIN").
+
+            Returns:
+                Mes asociado o None si no hay coincidencia.
+            """
+            if pd.isna(sprint_name):
+                return None
+
+            sprint_str = str(sprint_name)
+
+            # Buscar si alguna clave del mapeo está contenida en el nombre del sprint
+            for sprint_key, month in self.sprint_mapping.items():
+                if sprint_key in sprint_str:
+                    return month
+
+            return None
+
+        self.df['Month'] = self.df['Sprint'].apply(map_sprint_to_month)
 
         # Verificar sprints sin mapeo
         unmapped_sprints = self.df[self.df['Month'].isna()]['Sprint'].unique()
