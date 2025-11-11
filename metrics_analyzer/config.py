@@ -81,14 +81,10 @@ COLORS: Dict[str, str] = {
 # Columnas requeridas (críticas) en el Excel de Monday.com
 REQUIRED_COLUMNS: List[str] = [
     'Name',
-    'Dueño',
-    'Asignado',
     'Estado',
     'Tipo Tarea',
     'Estimación Original',
-    'Task ID',
     'Fecha Inicio',
-    'Fecha Término',
     'Sprint',
     'Sprint Completed?'
 ]
