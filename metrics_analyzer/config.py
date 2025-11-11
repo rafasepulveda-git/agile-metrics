@@ -95,15 +95,26 @@ OPTIONAL_COLUMNS: List[str] = [
     'Estado UAT',
     'Puntos Logrados',
     'Fecha Término',
+    'Fecha Certificado QA',
+    'Fecha UAT',
     'Fecha Ready for Production',
     'Fecha paso a Producción',
     'Ciclos UAT',
     'Carry over'
 ]
 
-# Columnas de fecha que pueden usarse como fecha de entrega para Cycle Time
-DELIVERY_DATE_COLUMNS: List[str] = [
+# Columnas de fecha que pueden usarse como fecha de entrega para Cycle Time - Equipos Productivos
+DELIVERY_DATE_COLUMNS_PRODUCTIVE: List[str] = [
     'Fecha Término',
+    'Fecha Ready for Production',
+    'Fecha paso a Producción'
+]
+
+# Columnas de fecha que pueden usarse como fecha de entrega para Cycle Time - Equipos En Desarrollo
+DELIVERY_DATE_COLUMNS_DEVELOPMENT: List[str] = [
+    'Fecha Término',
+    'Fecha Certificado QA',
+    'Fecha UAT',
     'Fecha Ready for Production',
     'Fecha paso a Producción'
 ]

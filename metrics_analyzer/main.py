@@ -13,7 +13,11 @@ import sys
 from pathlib import Path
 from typing import Dict
 
-from config import DEFAULT_SPRINT_MAPPING, DELIVERY_DATE_COLUMNS
+from config import (
+    DEFAULT_SPRINT_MAPPING,
+    DELIVERY_DATE_COLUMNS_PRODUCTIVE,
+    DELIVERY_DATE_COLUMNS_DEVELOPMENT
+)
 from data_loader import load_and_validate_data
 from data_processor import process_data
 from metrics_calculator import MetricsCalculator
@@ -206,20 +210,29 @@ def prompt_sprint_mapping() -> Dict[str, str]:
             print_error("Por favor ingrese 's' o 'n'")
 
 
-def prompt_delivery_date_column(df: pd.DataFrame) -> str:
+def prompt_delivery_date_column(df: pd.DataFrame, team_type: str) -> str:
     """
     Detecta columnas de fecha disponibles y permite al usuario seleccionar
     cuál usar como fecha de entrega para el cálculo de Cycle Time.
 
     Args:
         df: DataFrame con los datos cargados.
+        team_type: Tipo de equipo ('Productivo' o 'En Desarrollo').
 
     Returns:
         Nombre de la columna a usar como fecha de entrega.
     """
+    # Seleccionar lista de columnas según tipo de equipo
+    if team_type == 'Productivo':
+        date_columns = DELIVERY_DATE_COLUMNS_PRODUCTIVE
+        default_column = 'Fecha Término'
+    else:  # En Desarrollo
+        date_columns = DELIVERY_DATE_COLUMNS_DEVELOPMENT
+        default_column = 'Fecha Certificado QA'
+
     # Detectar columnas de fecha disponibles y con datos
     available_columns = []
-    for col in DELIVERY_DATE_COLUMNS:
+    for col in date_columns:
         if col in df.columns:
             # Contar cuántos valores no-nulos tiene
             non_null_count = df[col].notna().sum()
@@ -231,28 +244,29 @@ def prompt_delivery_date_column(df: pd.DataFrame) -> str:
                 })
 
     if not available_columns:
-        print_warning("No se encontraron columnas de fecha con datos para calcular Cycle Time.")
+        print_warning(f"No se encontraron columnas de fecha con datos para calcular Cycle Time.")
+        print_warning(f"Columnas buscadas para equipo '{team_type}': {', '.join(date_columns)}")
         print_warning("El Cycle Time no podrá ser calculado.")
         return None
 
     # Si solo hay una columna disponible, usarla automáticamente
     if len(available_columns) == 1:
         col_name = available_columns[0]['name']
-        print_info(f"Usando columna de fecha: {col_name}")
+        print_info(f"Usando columna de fecha: {col_name} ({available_columns[0]['percentage']:.1f}% completitud)")
         return col_name
 
-    # Si 'Fecha Término' está disponible y tiene datos, preguntar si usar por defecto
-    fecha_termino = next((c for c in available_columns if c['name'] == 'Fecha Término'), None)
-    if fecha_termino:
-        print("\nSe encontró la columna 'Fecha Término' con datos.")
-        print(f"Registros con fecha: {fecha_termino['count']} ({fecha_termino['percentage']:.1f}%)")
+    # Si la columna por defecto está disponible y tiene datos, preguntar si usarla
+    default_col = next((c for c in available_columns if c['name'] == default_column), None)
+    if default_col:
+        print(f"\nSe encontró la columna '{default_column}' con datos (recomendada para equipos {team_type}).")
+        print(f"Registros con fecha: {default_col['count']} ({default_col['percentage']:.1f}%)")
 
-        choice = input("\n¿Usar 'Fecha Término' como fecha de entrega? (s/n): ").strip().lower()
+        choice = input(f"\n¿Usar '{default_column}' como fecha de entrega? (s/n): ").strip().lower()
         if choice == 's':
-            return 'Fecha Término'
+            return default_column
 
     # Mostrar todas las opciones disponibles
-    print("\nSeleccione la columna de fecha a usar como fecha de entrega para Cycle Time:")
+    print(f"\nSeleccione la columna de fecha a usar como fecha de entrega para Cycle Time (equipo {team_type}):")
     for idx, col_info in enumerate(available_columns, start=1):
         print(f"  {idx}. {col_info['name']}")
         print(f"     Registros con fecha: {col_info['count']} ({col_info['percentage']:.1f}%)")
@@ -362,10 +376,12 @@ def main() -> int:
         else:
             sprint_mapping = prompt_sprint_mapping()
 
-        # Seleccionar columna de fecha para Cycle Time
-        delivery_date_column = prompt_delivery_date_column(df)
+        # Seleccionar columna de fecha para Cycle Time según tipo de equipo
+        delivery_date_column = prompt_delivery_date_column(df, team_type)
         if delivery_date_column is None:
-            delivery_date_column = 'Fecha Ready for Production'  # Fallback por defecto
+            # Fallback según tipo de equipo
+            delivery_date_column = 'Fecha Certificado QA' if team_type == 'En Desarrollo' else 'Fecha Ready for Production'
+            print_warning(f"Usando fallback: {delivery_date_column}")
 
         # 3. Procesar datos
         print_section_header("PASO 2: Procesamiento de Datos")
