@@ -130,6 +130,31 @@ def prompt_team_type() -> str:
             print_error("Opción inválida. Por favor ingrese 1 o 2.")
 
 
+def prompt_team_name() -> str:
+    """
+    Pregunta al usuario el nombre del equipo.
+
+    Returns:
+        Nombre del equipo.
+    """
+    print("\nIngrese el nombre del equipo:")
+
+    while True:
+        team_name = input("Nombre del equipo: ").strip()
+
+        if not team_name:
+            print_error("El nombre del equipo no puede estar vacío.")
+            continue
+
+        # Validar que no tenga caracteres inválidos para nombres de archivo
+        invalid_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|']
+        if any(char in team_name for char in invalid_chars):
+            print_error(f"El nombre no puede contener estos caracteres: {' '.join(invalid_chars)}")
+            continue
+
+        return team_name
+
+
 def prompt_team_size() -> int:
     """
     Pregunta al usuario el tamaño del equipo.
@@ -259,6 +284,7 @@ def main() -> int:
         df = load_and_validate_data(args.input, verbose=args.verbose)
 
         # 2. Configuración interactiva
+        team_name = prompt_team_name()
         team_type = prompt_team_type()
         team_size = prompt_team_size()
 
@@ -304,13 +330,14 @@ def main() -> int:
 
         if not args.charts_only:
             print_section_header("PASO 4: Generación de Reporte Excel")
-            excel_path = str(output_dir / 'Metricas_Performance_Equipo.xlsx')
+            excel_filename = f'{team_name}_Metricas_Performance.xlsx'
+            excel_path = str(output_dir / excel_filename)
             generate_excel_report(sprint_metrics, month_metrics, summary, excel_path)
             print_success("Reporte Excel generado")
 
         if not args.excel_only:
             print_section_header("PASO 5: Generación de Dashboards")
-            dashboards = generate_dashboards(sprint_metrics, month_metrics, str(output_dir))
+            dashboards = generate_dashboards(sprint_metrics, month_metrics, str(output_dir), team_name)
             sprint_dashboard_path = dashboards.get('sprint_dashboard')
             month_dashboard_path = dashboards.get('month_dashboard')
             print_success("Dashboards generados")

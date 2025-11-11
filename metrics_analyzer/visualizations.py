@@ -386,7 +386,8 @@ class DashboardGenerator:
 def generate_dashboards(
     sprint_metrics: pd.DataFrame,
     month_metrics: pd.DataFrame,
-    output_dir: str = '.'
+    output_dir: str = '.',
+    team_name: str = 'Equipo'
 ) -> dict:
     """
     Genera todos los dashboards y los guarda.
@@ -395,6 +396,7 @@ def generate_dashboards(
         sprint_metrics: DataFrame con métricas por sprint.
         month_metrics: DataFrame con métricas por mes.
         output_dir: Directorio donde guardar los archivos.
+        team_name: Nombre del equipo para usar como prefijo en archivos.
 
     Returns:
         Diccionario con las rutas de los archivos generados.
@@ -404,9 +406,9 @@ def generate_dashboards(
 
     generator = DashboardGenerator(sprint_metrics, month_metrics)
 
-    # Generar dashboards
-    sprint_dashboard_path = output_path / 'metricas_por_sprint_dashboard.png'
-    month_dashboard_path = output_path / 'metricas_por_mes_dashboard.png'
+    # Generar dashboards con prefijo del nombre del equipo
+    sprint_dashboard_path = output_path / f'{team_name}_metricas_por_sprint.png'
+    month_dashboard_path = output_path / f'{team_name}_metricas_por_mes.png'
 
     generator.generate_sprint_dashboard(str(sprint_dashboard_path))
 
