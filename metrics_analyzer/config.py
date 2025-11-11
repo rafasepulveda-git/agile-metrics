@@ -94,10 +94,18 @@ OPTIONAL_COLUMNS: List[str] = [
     'Estado QA',
     'Estado UAT',
     'Puntos Logrados',
+    'Fecha Término',
     'Fecha Ready for Production',
     'Fecha paso a Producción',
     'Ciclos UAT',
     'Carry over'
+]
+
+# Columnas de fecha que pueden usarse como fecha de entrega para Cycle Time
+DELIVERY_DATE_COLUMNS: List[str] = [
+    'Fecha Término',
+    'Fecha Ready for Production',
+    'Fecha paso a Producción'
 ]
 
 # Configuración de visualizaciones

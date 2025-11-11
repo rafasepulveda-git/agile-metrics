@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Dict
 
-from config import DEFAULT_SPRINT_MAPPING
+from config import DEFAULT_SPRINT_MAPPING, DELIVERY_DATE_COLUMNS
 from data_loader import load_and_validate_data
 from data_processor import process_data
 from metrics_calculator import MetricsCalculator
@@ -30,6 +30,7 @@ from utils import (
     print_info,
     format_file_size
 )
+import pandas as pd
 
 
 logger = logging.getLogger(__name__)
@@ -205,6 +206,72 @@ def prompt_sprint_mapping() -> Dict[str, str]:
             print_error("Por favor ingrese 's' o 'n'")
 
 
+def prompt_delivery_date_column(df: pd.DataFrame) -> str:
+    """
+    Detecta columnas de fecha disponibles y permite al usuario seleccionar
+    cuál usar como fecha de entrega para el cálculo de Cycle Time.
+
+    Args:
+        df: DataFrame con los datos cargados.
+
+    Returns:
+        Nombre de la columna a usar como fecha de entrega.
+    """
+    # Detectar columnas de fecha disponibles y con datos
+    available_columns = []
+    for col in DELIVERY_DATE_COLUMNS:
+        if col in df.columns:
+            # Contar cuántos valores no-nulos tiene
+            non_null_count = df[col].notna().sum()
+            if non_null_count > 0:
+                available_columns.append({
+                    'name': col,
+                    'count': non_null_count,
+                    'percentage': (non_null_count / len(df)) * 100
+                })
+
+    if not available_columns:
+        print_warning("No se encontraron columnas de fecha con datos para calcular Cycle Time.")
+        print_warning("El Cycle Time no podrá ser calculado.")
+        return None
+
+    # Si solo hay una columna disponible, usarla automáticamente
+    if len(available_columns) == 1:
+        col_name = available_columns[0]['name']
+        print_info(f"Usando columna de fecha: {col_name}")
+        return col_name
+
+    # Si 'Fecha Término' está disponible y tiene datos, preguntar si usar por defecto
+    fecha_termino = next((c for c in available_columns if c['name'] == 'Fecha Término'), None)
+    if fecha_termino:
+        print("\nSe encontró la columna 'Fecha Término' con datos.")
+        print(f"Registros con fecha: {fecha_termino['count']} ({fecha_termino['percentage']:.1f}%)")
+
+        choice = input("\n¿Usar 'Fecha Término' como fecha de entrega? (s/n): ").strip().lower()
+        if choice == 's':
+            return 'Fecha Término'
+
+    # Mostrar todas las opciones disponibles
+    print("\nSeleccione la columna de fecha a usar como fecha de entrega para Cycle Time:")
+    for idx, col_info in enumerate(available_columns, start=1):
+        print(f"  {idx}. {col_info['name']}")
+        print(f"     Registros con fecha: {col_info['count']} ({col_info['percentage']:.1f}%)")
+
+    while True:
+        try:
+            choice = input(f"\nIngrese su opción (1-{len(available_columns)}): ").strip()
+            choice_idx = int(choice) - 1
+
+            if 0 <= choice_idx < len(available_columns):
+                selected_col = available_columns[choice_idx]['name']
+                print_success(f"Usando columna: {selected_col}")
+                return selected_col
+            else:
+                print_error(f"Opción inválida. Por favor ingrese un número entre 1 y {len(available_columns)}.")
+        except ValueError:
+            print_error("Por favor ingrese un número válido.")
+
+
 def print_final_report(
     summary: Dict,
     excel_path: str = None,
@@ -295,12 +362,18 @@ def main() -> int:
         else:
             sprint_mapping = prompt_sprint_mapping()
 
+        # Seleccionar columna de fecha para Cycle Time
+        delivery_date_column = prompt_delivery_date_column(df)
+        if delivery_date_column is None:
+            delivery_date_column = 'Fecha Ready for Production'  # Fallback por defecto
+
         # 3. Procesar datos
         print_section_header("PASO 2: Procesamiento de Datos")
         processed_df = process_data(
             df,
             team_type=team_type,
             sprint_mapping=sprint_mapping,
+            delivery_date_column=delivery_date_column,
             verbose=args.verbose
         )
 

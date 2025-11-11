@@ -34,7 +34,8 @@ class DataProcessor:
         self,
         df: pd.DataFrame,
         team_type: Literal['Productivo', 'En Desarrollo'] = 'Productivo',
-        sprint_mapping: Dict[str, str] = None
+        sprint_mapping: Dict[str, str] = None,
+        delivery_date_column: str = 'Fecha Término'
     ):
         """
         Inicializa el procesador de datos.
@@ -43,11 +44,13 @@ class DataProcessor:
             df: DataFrame con los datos crudos.
             team_type: Tipo de equipo ('Productivo' o 'En Desarrollo').
             sprint_mapping: Mapeo de sprints a meses. Si es None, usa el por defecto.
+            delivery_date_column: Columna de fecha a usar como fecha de entrega para Cycle Time.
         """
         self.raw_df = df.copy()
         self.df = df.copy()
         self.team_type = team_type
         self.sprint_mapping = sprint_mapping or DEFAULT_SPRINT_MAPPING
+        self.delivery_date_column = delivery_date_column
 
         # Definir estados de entrega según tipo de equipo
         if team_type == 'Productivo':
@@ -56,6 +59,7 @@ class DataProcessor:
             self.delivery_states = DELIVERY_STATES_DEVELOPMENT
 
         logger.info(f"Procesador inicializado para equipo tipo: {team_type}")
+        logger.info(f"Usando columna de fecha de entrega: {delivery_date_column}")
 
     def process(self) -> pd.DataFrame:
         """
@@ -172,7 +176,7 @@ class DataProcessor:
             Cycle time en días, o NaN si no es posible calcular.
         """
         start = row.get('Fecha Inicio')
-        end = row.get('Fecha Ready for Production')
+        end = row.get(self.delivery_date_column)
 
         if pd.isna(start) or pd.isna(end):
             return np.nan
@@ -297,6 +301,7 @@ def process_data(
     df: pd.DataFrame,
     team_type: Literal['Productivo', 'En Desarrollo'],
     sprint_mapping: Dict[str, str] = None,
+    delivery_date_column: str = 'Fecha Término',
     verbose: bool = False
 ) -> pd.DataFrame:
     """
@@ -306,12 +311,13 @@ def process_data(
         df: DataFrame con datos crudos.
         team_type: Tipo de equipo.
         sprint_mapping: Mapeo de sprints a meses.
+        delivery_date_column: Columna de fecha a usar como fecha de entrega para Cycle Time.
         verbose: Si es True, imprime resumen.
 
     Returns:
         DataFrame procesado.
     """
-    processor = DataProcessor(df, team_type, sprint_mapping)
+    processor = DataProcessor(df, team_type, sprint_mapping, delivery_date_column)
     processed_df = processor.process()
 
     if verbose:
