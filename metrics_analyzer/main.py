@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Dict
 
 from config import (
+    VERSION,
     DEFAULT_SPRINT_MAPPING,
     DELIVERY_DATE_COLUMNS_PRODUCTIVE,
     DELIVERY_DATE_COLUMNS_DEVELOPMENT
@@ -53,8 +54,11 @@ def get_args() -> argparse.Namespace:
         epilog="""
 Ejemplos de uso:
 
-  # Uso básico
+  # Uso básico con gráficos clásicos (v1, por defecto)
   python main.py --input mi_archivo.xlsx
+
+  # Usar gráficos mejorados (v2: control charts, box plots, gauges)
+  python main.py --input mi_archivo.xlsx --chart-version v2
 
   # Con mapeo de sprints personalizado
   python main.py --input datos.xlsx --sprint-map "Sprint 2:Julio,Sprint 3:Agosto"
@@ -107,6 +111,14 @@ Ejemplos de uso:
         '-v',
         action='store_true',
         help='Modo verbose (mostrar logs detallados)'
+    )
+
+    parser.add_argument(
+        '--chart-version',
+        type=str,
+        choices=['v1', 'v2'],
+        default='v1',
+        help='Versión de gráficos a usar: v1 (clásicos) o v2 (mejorados con control charts, box plots, etc.)'
     )
 
     return parser.parse_args()
@@ -358,7 +370,8 @@ def main() -> int:
 
     try:
         # Banner inicial
-        print_section_header("ANALIZADOR DE MÉTRICAS DE PERFORMANCE ÁGIL", "=")
+        print_section_header(f"ANALIZADOR DE MÉTRICAS DE PERFORMANCE ÁGIL v{VERSION}", "=")
+        print_info(f"Versión de gráficos: {args.chart_version}")
 
         # 1. Cargar y validar datos
         print_section_header("PASO 1: Carga y Validación de Datos")
@@ -426,9 +439,14 @@ def main() -> int:
 
         if not args.excel_only:
             print_section_header("PASO 5: Generación de Dashboards")
-            dashboards = generate_dashboards(sprint_metrics, month_metrics, str(output_dir), team_name)
-            sprint_dashboard_path = dashboards.get('sprint_dashboard')
-            month_dashboard_path = dashboards.get('month_dashboard')
+            print_info(f"Usando versión de gráficos: {args.chart_version}")
+            sprint_dashboard_path, month_dashboard_path = generate_dashboards(
+                sprint_metrics,
+                month_metrics,
+                str(output_dir),
+                team_name,
+                chart_version=args.chart_version
+            )
             print_success("Dashboards generados")
 
         # 6. Reporte final

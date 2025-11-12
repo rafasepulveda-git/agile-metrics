@@ -8,6 +8,10 @@ en el análisis de métricas de performance ágil.
 from typing import Dict, List
 
 
+# Versión del analizador
+VERSION = '1.1.0'
+
+
 # Mapeo por defecto de sprints a meses
 DEFAULT_SPRINT_MAPPING: Dict[str, str] = {
     'Sprint 2': 'Julio',
