@@ -6,10 +6,10 @@ de datos comunes utilizados en todo el proyecto.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Union
 import pandas as pd
-from config import COPY_SUFFIXES
+from config import COPY_SUFFIXES, HOLIDAYS
 
 
 # Configurar logging
@@ -158,6 +158,54 @@ def calculate_days_between(start_date: Any, end_date: Any) -> Optional[float]:
 
     delta = end - start
     return delta.days
+
+
+def calculate_business_days(start_date: Any, end_date: Any, holidays: List[str] = None) -> Optional[int]:
+    """
+    Calcula los días hábiles entre dos fechas, excluyendo fines de semana y feriados.
+
+    Args:
+        start_date: Fecha de inicio.
+        end_date: Fecha de fin.
+        holidays: Lista de fechas de feriados en formato 'YYYY-MM-DD'. Si es None, usa HOLIDAYS de config.
+
+    Returns:
+        Número de días hábiles entre las fechas, o None si no es posible calcular.
+    """
+    start = safe_date_conversion(start_date)
+    end = safe_date_conversion(end_date)
+
+    if start is None or end is None:
+        return None
+
+    # Usar feriados de config si no se proporcionan
+    if holidays is None:
+        holidays = HOLIDAYS
+
+    # Convertir feriados a set de fechas para búsqueda rápida
+    holiday_dates = set()
+    for holiday_str in holidays:
+        try:
+            holiday_date = datetime.strptime(holiday_str, '%Y-%m-%d').date()
+            holiday_dates.add(holiday_date)
+        except ValueError:
+            logging.warning(f"Fecha de feriado inválida: {holiday_str}")
+
+    # Contar días hábiles
+    business_days = 0
+    current_date = start.date() if isinstance(start, datetime) else start
+    end_date_obj = end.date() if isinstance(end, datetime) else end
+
+    while current_date <= end_date_obj:
+        # Verificar si es día de semana (lunes=0, domingo=6)
+        if current_date.weekday() < 5:  # 0-4 son días laborables
+            # Verificar si no es feriado
+            if current_date not in holiday_dates:
+                business_days += 1
+
+        current_date += timedelta(days=1)
+
+    return business_days
 
 
 def format_percentage(value: Optional[float], decimals: int = 1) -> str:
@@ -317,3 +365,38 @@ def validate_team_size(team_size: Any) -> int:
         return size
     except (ValueError, TypeError) as e:
         raise ValueError(f"Tamaño de equipo inválido: {e}")
+
+
+def extract_sprint_number(sprint_name: str) -> str:
+    """
+    Extrae el número base de un sprint para agrupar sprints con el mismo número.
+
+    Ejemplos:
+        'Sprint 07 FIDSIN' -> 'Sprint 7'
+        'Sprint 07 Auto3P' -> 'Sprint 7'
+        'Sprint 7' -> 'Sprint 7'
+        'Sprint 03' -> 'Sprint 3'
+
+    Args:
+        sprint_name: Nombre completo del sprint.
+
+    Returns:
+        Nombre unificado del sprint (ej: 'Sprint 7').
+    """
+    import re
+
+    if pd.isna(sprint_name):
+        return None
+
+    sprint_str = str(sprint_name).strip()
+
+    # Buscar patrón: "Sprint" seguido de números (con o sin ceros a la izquierda)
+    # y opcionalmente seguido de más texto
+    match = re.search(r'Sprint\s*(\d+)', sprint_str, re.IGNORECASE)
+
+    if match:
+        sprint_number = int(match.group(1))  # Convertir a int para quitar ceros a la izquierda
+        return f'Sprint {sprint_number}'
+
+    # Si no coincide con el patrón, retornar el nombre original
+    return sprint_str

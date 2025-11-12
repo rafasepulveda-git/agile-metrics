@@ -44,29 +44,48 @@ class MetricsCalculator:
 
     def _calculate_sprint_metrics(self) -> pd.DataFrame:
         """
-        Calcula métricas por sprint.
+        Calcula métricas por sprint unificado.
+
+        Sprints con el mismo número base se agrupan juntos.
+        Ejemplo: 'Sprint 07 FIDSIN' y 'Sprint 07 Auto3P' se unifican como 'Sprint 7'.
 
         Returns:
-            DataFrame con métricas por sprint.
+            DataFrame con métricas por sprint unificado.
         """
-        sprints = sorted(self.df['Sprint'].unique())
+        # Usar Sprint_Unified en lugar de Sprint para agrupar
+        unified_sprints = sorted(self.df['Sprint_Unified'].unique())
         metrics = []
 
-        for sprint in sprints:
-            sprint_data = self.df[self.df['Sprint'] == sprint]
-            sprint_metrics = self._calculate_single_sprint_metrics(sprint, sprint_data)
+        for unified_sprint in unified_sprints:
+            # Obtener todas las tareas con el mismo sprint unificado
+            sprint_data = self.df[self.df['Sprint_Unified'] == unified_sprint]
+
+            # Obtener nombres originales de sprints que se están unificando
+            original_sprints = sprint_data['Sprint'].unique()
+
+            sprint_metrics = self._calculate_single_sprint_metrics(
+                unified_sprint,
+                sprint_data,
+                original_sprints
+            )
             metrics.append(sprint_metrics)
 
         df_metrics = pd.DataFrame(metrics)
         return df_metrics
 
-    def _calculate_single_sprint_metrics(self, sprint: str, sprint_data: pd.DataFrame) -> Dict:
+    def _calculate_single_sprint_metrics(
+        self,
+        sprint: str,
+        sprint_data: pd.DataFrame,
+        original_sprints: list = None
+    ) -> Dict:
         """
-        Calcula métricas para un sprint específico.
+        Calcula métricas para un sprint unificado.
 
         Args:
-            sprint: Nombre del sprint.
-            sprint_data: DataFrame filtrado para el sprint.
+            sprint: Nombre del sprint unificado.
+            sprint_data: DataFrame filtrado para el sprint (puede incluir múltiples sprints originales).
+            original_sprints: Lista de nombres originales de sprints que se unifican.
 
         Returns:
             Diccionario con todas las métricas del sprint.
@@ -121,8 +140,12 @@ class MetricsCalculator:
         # Obtener el mes si está disponible
         month = sprint_data['Month'].iloc[0] if 'Month' in sprint_data.columns else None
 
+        # Crear descripción de sprints originales si hay múltiples
+        original_sprints_str = ', '.join(sorted(original_sprints)) if original_sprints is not None and len(original_sprints) > 1 else None
+
         return {
             'Sprint': sprint,
+            'Original_Sprints': original_sprints_str,  # Nuevo campo
             'Month': month,
             'Throughput': throughput,
             'Velocity': velocity,
@@ -163,7 +186,7 @@ class MetricsCalculator:
 
     def _calculate_single_month_metrics(self, month: str, month_data: pd.DataFrame) -> Dict:
         """
-        Calcula métricas para un mes específico.
+        Calcula métricas para un mes específico usando sprints unificados.
 
         Args:
             month: Nombre del mes.
@@ -172,9 +195,9 @@ class MetricsCalculator:
         Returns:
             Diccionario con todas las métricas del mes.
         """
-        # Obtener sprints del mes
-        sprints_in_month = month_data['Sprint'].unique()
-        num_sprints = len(sprints_in_month)
+        # Obtener sprints UNIFICADOS del mes
+        unified_sprints_in_month = month_data['Sprint_Unified'].unique()
+        num_sprints = len(unified_sprints_in_month)
 
         # Tareas entregadas (incluye todas las tareas)
         delivered = month_data[month_data['Is_Delivered']]
@@ -183,10 +206,10 @@ class MetricsCalculator:
         throughput_total = len(delivered)
         throughput_avg = throughput_total / num_sprints if num_sprints > 0 else np.nan
 
-        # 2. VELOCITY: Promedio de velocity de los sprints del mes
+        # 2. VELOCITY: Promedio de velocity de los sprints UNIFICADOS del mes
         sprint_velocities = []
-        for sprint in sprints_in_month:
-            sprint_data = month_data[month_data['Sprint'] == sprint]
+        for unified_sprint in unified_sprints_in_month:
+            sprint_data = month_data[month_data['Sprint_Unified'] == unified_sprint]
             sprint_delivered = sprint_data[sprint_data['Is_Delivered']]
 
             # Usar misma lógica que en cálculo por sprint
@@ -201,18 +224,30 @@ class MetricsCalculator:
         velocity_avg = np.mean(sprint_velocities) if sprint_velocities else np.nan
         velocity_total = sum(sprint_velocities) if sprint_velocities else 0
 
-        # 3. CYCLE TIME: Promedio de cycle times del mes
-        cycle_times = delivered['Cycle_Time_Days'].dropna()
-        cycle_time_avg = cycle_times.mean() if len(cycle_times) > 0 else np.nan
-        cycle_time_median = cycle_times.median() if len(cycle_times) > 0 else np.nan
-
-        # 4. PREDICTIBILIDAD: Promedio de predictibilidad de sprints del mes
-        sprint_predictabilities = []
-        for sprint in sprints_in_month:
-            sprint_data = month_data[month_data['Sprint'] == sprint]
+        # 3. CYCLE TIME: Promedio de los promedios de cada sprint UNIFICADO
+        sprint_cycle_times = []
+        for unified_sprint in unified_sprints_in_month:
+            sprint_data = month_data[month_data['Sprint_Unified'] == unified_sprint]
             sprint_delivered = sprint_data[sprint_data['Is_Delivered']]
 
-            # Comprometido = TODAS las tareas del sprint
+            cycle_times = sprint_delivered['Cycle_Time_Days'].dropna()
+            if len(cycle_times) > 0:
+                sprint_avg = cycle_times.mean()
+                sprint_cycle_times.append(sprint_avg)
+
+        cycle_time_avg = np.mean(sprint_cycle_times) if sprint_cycle_times else np.nan
+
+        # Mediana calculada sobre todas las tareas del mes (no cambia)
+        all_cycle_times = delivered['Cycle_Time_Days'].dropna()
+        cycle_time_median = all_cycle_times.median() if len(all_cycle_times) > 0 else np.nan
+
+        # 4. PREDICTIBILIDAD: Promedio de predictibilidad de sprints UNIFICADOS del mes
+        sprint_predictabilities = []
+        for unified_sprint in unified_sprints_in_month:
+            sprint_data = month_data[month_data['Sprint_Unified'] == unified_sprint]
+            sprint_delivered = sprint_data[sprint_data['Is_Delivered']]
+
+            # Comprometido = TODAS las tareas del sprint unificado
             committed = sprint_data['Estimación Original'].sum()
             # Entregado = Tareas completadas
             delivered_pts = sprint_delivered['Estimación Original'].sum()
@@ -239,7 +274,7 @@ class MetricsCalculator:
         return {
             'Month': month,
             'Num_Sprints': num_sprints,
-            'Sprints': ', '.join(sorted(sprints_in_month)),
+            'Sprints': ', '.join(sorted(unified_sprints_in_month)),  # Mostrar sprints unificados
             'Throughput_Total': throughput_total,
             'Throughput_Avg': throughput_avg,
             'Velocity_Total': velocity_total,

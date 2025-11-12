@@ -20,7 +20,9 @@ from utils import (
     safe_date_conversion,
     is_sprint_completed,
     print_warning,
-    print_info
+    print_info,
+    calculate_business_days,
+    extract_sprint_number
 )
 
 
@@ -136,6 +138,9 @@ class DataProcessor:
         else:
             self.df['Sprint_Completed'] = False
 
+        # Extraer número unificado de sprint (para agrupar sprints con mismo número)
+        self.df['Sprint_Unified'] = self.df['Sprint'].apply(extract_sprint_number)
+
         # Es tarea entregada?
         self.df['Is_Delivered'] = self.df['Estado'].isin(self.delivery_states)
 
@@ -167,13 +172,13 @@ class DataProcessor:
 
     def _calculate_cycle_time(self, row: pd.Series) -> float:
         """
-        Calcula el cycle time para una tarea.
+        Calcula el cycle time para una tarea en días hábiles.
 
         Args:
             row: Fila del DataFrame.
 
         Returns:
-            Cycle time en días, o NaN si no es posible calcular.
+            Cycle time en días hábiles, o NaN si no es posible calcular.
         """
         start = row.get('Fecha Inicio')
         end = row.get(self.delivery_date_column)
@@ -182,8 +187,9 @@ class DataProcessor:
             return np.nan
 
         try:
-            delta = end - start
-            return delta.days
+            # Calcular días hábiles en lugar de días calendario
+            business_days = calculate_business_days(start, end)
+            return business_days if business_days is not None else np.nan
         except:
             return np.nan
 
