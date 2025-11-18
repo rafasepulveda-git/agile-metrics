@@ -29,6 +29,7 @@ El programa le hará algunas preguntas:
 1. **Tipo de equipo**:
    - Opción 1: Productivo (estados entregados: 11-13)
    - Opción 2: En Desarrollo (estados entregados: 9-13)
+     - Nota: Excluye automáticamente tareas en estado 9 con 0 puntos estimados
 
 2. **Tamaño del equipo**: Ingrese el número de miembros
 

@@ -236,6 +236,16 @@ Cuando una tarea no se completa en un sprint, se crea una copia con sufijo "(cop
 ### Sprints Completados
 Solo se analizan sprints marcados como completados (`Sprint Completed? = "v"`). Esto asegura que las métricas reflejen períodos cerrados.
 
+### Tareas en Estado 9 con 0 Puntos (Equipos En Desarrollo)
+Para equipos "En Desarrollo", Monday.com tiene una particularidad donde no permite cerrar historias cuando quedan en estado "9. Certificado QA". Esto causa que las tareas se arrastren (carry over) al siguiente sprint, y el equipo las deja con 0 puntos estimados para evitar doble contabilización.
+
+**El sistema automáticamente excluye** estas tareas de todas las métricas cuando:
+- El tipo de equipo es "En Desarrollo"
+- La tarea está en estado "9. Certificado QA"
+- La tarea tiene `Estimación Original = 0`
+
+Esto previene distorsiones en las métricas causadas por limitaciones técnicas de Monday.com.
+
 ### Puntos Efectivos
 Para calcular velocity:
 1. Se intenta usar "Puntos Logrados" primero
@@ -375,5 +385,5 @@ Desarrollado para facilitar el análisis de métricas ágiles en equipos de desa
 
 ---
 
-**Versión**: 1.0.0
-**Última actualización**: 2025
+**Versión**: 1.1.1
+**Última actualización**: Noviembre 2025

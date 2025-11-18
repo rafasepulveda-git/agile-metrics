@@ -230,9 +230,26 @@ class DataProcessor:
         # Filtrar tareas con sprint válido
         self.df = self.df[self.df['Sprint'].notna() & (self.df['Sprint'] != 'nan')]
 
+        # Para equipos En Desarrollo: filtrar tareas en estado 9 con 0 puntos estimados
+        # Estas son tareas que Monday no permite cerrar y se arrastran con 0 puntos
+        if self.team_type == 'En Desarrollo':
+            estado_9_zero_points = (
+                (self.df['Estado'] == '9. Certificado QA') &
+                (self.df['Estimación Original'] == 0)
+            )
+            estado_9_zero_points_count = estado_9_zero_points.sum()
+
+            if estado_9_zero_points_count > 0:
+                logger.info(
+                    f"Filtrando {estado_9_zero_points_count} tareas en estado 9 con 0 puntos estimados "
+                    f"(equipos En Desarrollo)"
+                )
+
+            self.df = self.df[~estado_9_zero_points]
+
         filtered_count = initial_count - len(self.df)
         if filtered_count > 0:
-            logger.info(f"Filtradas {filtered_count} filas (sprints no completados o inválidos)")
+            logger.info(f"Filtradas {filtered_count} filas en total")
 
     def _add_month_mapping(self) -> None:
         """Agrega el mapeo de sprints a meses usando coincidencia parcial."""

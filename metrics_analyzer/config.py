@@ -9,7 +9,7 @@ from typing import Dict, List
 
 
 # Versión del analizador
-VERSION = '1.1.0'
+VERSION = '1.1.1'
 
 
 # Mapeo por defecto de sprints a meses
