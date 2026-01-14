@@ -200,11 +200,16 @@ class ExcelReportGenerator:
             'Month': 'Mes',
             'Throughput': 'Throughput',
             'Velocity': 'Velocity',
+            'Total_Estimated': 'Total Estimado',
             'Cycle_Time_Avg': 'Cycle Time Prom.',
             'Cycle_Time_Median': 'Cycle Time Med.',
+            'Cycle_Time_HDU_Avg': 'Cycle Time HDU Prom.',
+            'Cycle_Time_HDU_Median': 'Cycle Time HDU Med.',
             'Predictability': 'Predictibilidad (%)',
+            'Predictability_HDU': 'Predictibilidad HDU (%)',
             'Efficiency': 'Eficiencia',
-            'Rework': 'Retrabajo (%)',
+            'Rework': 'Retrabajo Est. (%)',
+            'Rework_Achieved': 'Retrabajo Logr. (%)',
             'Total_Tasks': 'Total Tareas',
             'Delivered_Tasks': 'Tareas Entregadas'
         }
@@ -225,7 +230,8 @@ class ExcelReportGenerator:
                     worksheet.write(row_num, col_num, 'N/A')
                 elif column_name in ['Throughput', 'Total Tareas', 'Tareas Entregadas']:
                     worksheet.write(row_num, col_num, int(value), self.formats['integer'])
-                elif column_name in ['Velocity', 'Cycle Time Prom.', 'Cycle Time Med.', 'Eficiencia']:
+                elif column_name in ['Velocity', 'Total Estimado', 'Cycle Time Prom.', 'Cycle Time Med.',
+                                     'Cycle Time HDU Prom.', 'Cycle Time HDU Med.', 'Eficiencia']:
                     worksheet.write(row_num, col_num, value, self.formats['number'])
                 elif column_name == 'Predictibilidad (%)':
                     # Formato condicional para predictibilidad
@@ -236,8 +242,26 @@ class ExcelReportGenerator:
                     else:
                         fmt = self.formats['danger']
                     worksheet.write(row_num, col_num, value, fmt)
-                elif column_name == 'Retrabajo (%)':
-                    # Formato condicional para retrabajo (inverso)
+                elif column_name == 'Predictibilidad HDU (%)':
+                    # Formato condicional para predictibilidad HDU (mismo que predictibilidad)
+                    if value >= THRESHOLDS['predictability_good']:
+                        fmt = self.formats['good']
+                    elif value >= THRESHOLDS['predictability_warning']:
+                        fmt = self.formats['warning']
+                    else:
+                        fmt = self.formats['danger']
+                    worksheet.write(row_num, col_num, value, fmt)
+                elif column_name == 'Retrabajo Est. (%)':
+                    # Formato condicional para retrabajo estimado (inverso: menos es mejor)
+                    if value <= THRESHOLDS['rework_good']:
+                        fmt = self.formats['good']
+                    elif value <= THRESHOLDS['rework_warning']:
+                        fmt = self.formats['warning']
+                    else:
+                        fmt = self.formats['danger']
+                    worksheet.write(row_num, col_num, value, fmt)
+                elif column_name == 'Retrabajo Logr. (%)':
+                    # Formato condicional para retrabajo logrado (inverso: menos es mejor)
                     if value <= THRESHOLDS['rework_good']:
                         fmt = self.formats['good']
                     elif value <= THRESHOLDS['rework_warning']:
@@ -269,10 +293,17 @@ class ExcelReportGenerator:
             'Throughput_Avg': 'Throughput Prom.',
             'Velocity_Total': 'Velocity Total',
             'Velocity_Avg': 'Velocity Prom.',
+            'Total_Estimated_Total': 'Total Estimado Total',
+            'Total_Estimated_Avg': 'Total Estimado Prom.',
             'Cycle_Time_Avg': 'Cycle Time Prom.',
+            'Cycle_Time_Median': 'Cycle Time Med.',
+            'Cycle_Time_HDU_Avg': 'Cycle Time HDU Prom.',
+            'Cycle_Time_HDU_Median': 'Cycle Time HDU Med.',
             'Predictability': 'Predictibilidad (%)',
+            'Predictability_HDU': 'Predictibilidad HDU (%)',
             'Efficiency': 'Eficiencia',
-            'Rework': 'Retrabajo (%)'
+            'Rework': 'Retrabajo Est. (%)',
+            'Rework_Achieved': 'Retrabajo Logr. (%)'
         }
 
         df_display = df[list(columns_to_show.keys())].rename(columns=columns_to_show)
@@ -292,7 +323,10 @@ class ExcelReportGenerator:
                 elif column_name in ['Num. Sprints', 'Throughput Total']:
                     worksheet.write(row_num, col_num, int(value), self.formats['integer'])
                 elif column_name in ['Throughput Prom.', 'Velocity Total', 'Velocity Prom.',
-                                     'Cycle Time Prom.', 'Eficiencia']:
+                                     'Total Estimado Total', 'Total Estimado Prom.',
+                                     'Cycle Time Prom.', 'Cycle Time Med.',
+                                     'Cycle Time HDU Prom.', 'Cycle Time HDU Med.',
+                                     'Eficiencia']:
                     worksheet.write(row_num, col_num, value, self.formats['number'])
                 elif column_name == 'Predictibilidad (%)':
                     if value >= THRESHOLDS['predictability_good']:
@@ -302,7 +336,23 @@ class ExcelReportGenerator:
                     else:
                         fmt = self.formats['danger']
                     worksheet.write(row_num, col_num, value, fmt)
-                elif column_name == 'Retrabajo (%)':
+                elif column_name == 'Predictibilidad HDU (%)':
+                    if value >= THRESHOLDS['predictability_good']:
+                        fmt = self.formats['good']
+                    elif value >= THRESHOLDS['predictability_warning']:
+                        fmt = self.formats['warning']
+                    else:
+                        fmt = self.formats['danger']
+                    worksheet.write(row_num, col_num, value, fmt)
+                elif column_name == 'Retrabajo Est. (%)':
+                    if value <= THRESHOLDS['rework_good']:
+                        fmt = self.formats['good']
+                    elif value <= THRESHOLDS['rework_warning']:
+                        fmt = self.formats['warning']
+                    else:
+                        fmt = self.formats['danger']
+                    worksheet.write(row_num, col_num, value, fmt)
+                elif column_name == 'Retrabajo Logr. (%)':
                     if value <= THRESHOLDS['rework_good']:
                         fmt = self.formats['good']
                     elif value <= THRESHOLDS['rework_warning']:

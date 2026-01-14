@@ -174,14 +174,28 @@ class DataProcessor:
         """
         Calcula el cycle time para una tarea en días hábiles.
 
+        Solo calcula para tareas en estado DoD.
+        Fecha DoD: Prioridad 1: Fecha Ready for Production, Prioridad 2: Fecha Término
+
         Args:
             row: Fila del DataFrame.
 
         Returns:
             Cycle time en días hábiles, o NaN si no es posible calcular.
         """
+        # Solo calcular para tareas en DoD
+        if not row.get('Is_Delivered', False):
+            return np.nan
+
         start = row.get('Fecha Inicio')
-        end = row.get(self.delivery_date_column)
+
+        # Determinar fecha de DoD con prioridad
+        # Prioridad 1: Fecha Ready for Production
+        end = row.get('Fecha Ready for Production')
+
+        # Prioridad 2: Si no existe o es NaN, usar Fecha Término
+        if pd.isna(end):
+            end = row.get('Fecha Término')
 
         if pd.isna(start) or pd.isna(end):
             return np.nan

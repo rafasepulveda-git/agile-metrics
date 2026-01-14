@@ -113,6 +113,12 @@ class MetricsCalculator:
         cycle_time_avg = cycle_times.mean() if len(cycle_times) > 0 else np.nan
         cycle_time_median = cycle_times.median() if len(cycle_times) > 0 else np.nan
 
+        # 3b. CYCLE TIME HDU: Solo tareas HDU
+        hdu_delivered = delivered[delivered['Tipo Tarea'] == 'HDU']
+        cycle_times_hdu = hdu_delivered['Cycle_Time_Days'].dropna()
+        cycle_time_hdu_avg = cycle_times_hdu.mean() if len(cycle_times_hdu) > 0 else np.nan
+        cycle_time_hdu_median = cycle_times_hdu.median() if len(cycle_times_hdu) > 0 else np.nan
+
         # 4. PREDICTIBILIDAD: Puntos entregados / Total puntos comprometidos
         # Puntos comprometidos = Estimación Original de TODAS las tareas del sprint
         # Puntos entregados = Estimación Original de tareas completadas
@@ -124,18 +130,41 @@ class MetricsCalculator:
         else:
             predictability = np.nan
 
+        # 4b. PREDICTIBILIDAD HDU: Solo considerando tareas HDU
+        hdu_tasks = sprint_data[sprint_data['Tipo Tarea'] == 'HDU']
+        hdu_delivered = hdu_tasks[hdu_tasks['Is_Delivered']]
+        committed_points_hdu = hdu_tasks['Estimación Original'].sum()
+        delivered_points_hdu = hdu_delivered['Estimación Original'].sum()
+
+        if committed_points_hdu > 0:
+            predictability_hdu = (delivered_points_hdu / committed_points_hdu) * 100
+        else:
+            predictability_hdu = np.nan
+
+        # TOTAL ESTIMADO: Suma de Estimación Original de todas las tareas del sprint
+        total_estimated = sprint_data['Estimación Original'].sum()
+
         # 5. EFICIENCIA: Velocity / Miembros del equipo
         efficiency = velocity / self.team_size if self.team_size > 0 else np.nan
 
-        # 6. RETRABAJO: Puntos de bugs / Total de puntos logrados
+        # 6. RETRABAJO (basado en Estimación Original): Puntos estimados de bugs / Total puntos estimados entregados
         bugs_delivered = delivered[delivered['Is_Bug']]
-        bug_points = bugs_delivered['Effective_Points'].sum()
-        total_points = delivered['Effective_Points'].sum()
+        bug_points_estimated = bugs_delivered['Estimación Original'].sum()
+        total_points_estimated = delivered['Estimación Original'].sum()
 
-        if total_points > 0:
-            rework = (bug_points / total_points) * 100
+        if total_points_estimated > 0:
+            rework = (bug_points_estimated / total_points_estimated) * 100
         else:
             rework = np.nan
+
+        # 6b. RETRABAJO PUNTOS LOGRADOS: Puntos logrados de bugs / Total puntos logrados
+        bug_points_achieved = bugs_delivered['Puntos Logrados'].sum()
+        total_points_achieved = delivered['Puntos Logrados'].sum()
+
+        if total_points_achieved > 0:
+            rework_achieved = (bug_points_achieved / total_points_achieved) * 100
+        else:
+            rework_achieved = np.nan
 
         # Obtener el mes si está disponible
         month = sprint_data['Month'].iloc[0] if 'Month' in sprint_data.columns else None
@@ -149,17 +178,26 @@ class MetricsCalculator:
             'Month': month,
             'Throughput': throughput,
             'Velocity': velocity,
+            'Total_Estimated': total_estimated,
             'Cycle_Time_Avg': cycle_time_avg,
             'Cycle_Time_Median': cycle_time_median,
+            'Cycle_Time_HDU_Avg': cycle_time_hdu_avg,
+            'Cycle_Time_HDU_Median': cycle_time_hdu_median,
             'Predictability': predictability,
+            'Predictability_HDU': predictability_hdu,
             'Efficiency': efficiency,
             'Rework': rework,
+            'Rework_Achieved': rework_achieved,
             'Total_Tasks': len(sprint_data),
             'Delivered_Tasks': throughput,
-            'Bug_Points': bug_points,
-            'Total_Points': total_points,
+            'Bug_Points_Estimated': bug_points_estimated,
+            'Bug_Points_Achieved': bug_points_achieved,
+            'Total_Points_Estimated': total_points_estimated,
+            'Total_Points_Achieved': total_points_achieved,
             'Committed_Points': committed_points,
-            'Delivered_Points': delivered_points
+            'Delivered_Points': delivered_points,
+            'Committed_Points_HDU': committed_points_hdu,
+            'Delivered_Points_HDU': delivered_points_hdu
         }
 
     def _calculate_month_metrics(self) -> pd.DataFrame:
@@ -241,6 +279,25 @@ class MetricsCalculator:
         all_cycle_times = delivered['Cycle_Time_Days'].dropna()
         cycle_time_median = all_cycle_times.median() if len(all_cycle_times) > 0 else np.nan
 
+        # 3b. CYCLE TIME HDU: Promedio de los promedios de cada sprint (solo HDU)
+        sprint_cycle_times_hdu = []
+        for unified_sprint in unified_sprints_in_month:
+            sprint_data = month_data[month_data['Sprint_Unified'] == unified_sprint]
+            sprint_delivered = sprint_data[sprint_data['Is_Delivered']]
+            hdu_delivered = sprint_delivered[sprint_delivered['Tipo Tarea'] == 'HDU']
+
+            cycle_times_hdu = hdu_delivered['Cycle_Time_Days'].dropna()
+            if len(cycle_times_hdu) > 0:
+                sprint_avg_hdu = cycle_times_hdu.mean()
+                sprint_cycle_times_hdu.append(sprint_avg_hdu)
+
+        cycle_time_hdu_avg = np.mean(sprint_cycle_times_hdu) if sprint_cycle_times_hdu else np.nan
+
+        # Mediana HDU calculada sobre todas las tareas HDU del mes
+        hdu_delivered_all = delivered[delivered['Tipo Tarea'] == 'HDU']
+        all_cycle_times_hdu = hdu_delivered_all['Cycle_Time_Days'].dropna()
+        cycle_time_hdu_median = all_cycle_times_hdu.median() if len(all_cycle_times_hdu) > 0 else np.nan
+
         # 4. PREDICTIBILIDAD: Promedio de predictibilidad de sprints UNIFICADOS del mes
         sprint_predictabilities = []
         for unified_sprint in unified_sprints_in_month:
@@ -258,18 +315,55 @@ class MetricsCalculator:
 
         predictability = np.mean(sprint_predictabilities) if sprint_predictabilities else np.nan
 
+        # 4b. PREDICTIBILIDAD HDU: Promedio de predictibilidad HDU de sprints UNIFICADOS del mes
+        sprint_predictabilities_hdu = []
+        for unified_sprint in unified_sprints_in_month:
+            sprint_data = month_data[month_data['Sprint_Unified'] == unified_sprint]
+            hdu_tasks = sprint_data[sprint_data['Tipo Tarea'] == 'HDU']
+            hdu_delivered = hdu_tasks[hdu_tasks['Is_Delivered']]
+
+            # Comprometido HDU = TODAS las tareas HDU del sprint unificado
+            committed_hdu = hdu_tasks['Estimación Original'].sum()
+            # Entregado HDU = Tareas HDU completadas
+            delivered_pts_hdu = hdu_delivered['Estimación Original'].sum()
+
+            if committed_hdu > 0:
+                pred_hdu = (delivered_pts_hdu / committed_hdu) * 100
+                sprint_predictabilities_hdu.append(pred_hdu)
+
+        predictability_hdu = np.mean(sprint_predictabilities_hdu) if sprint_predictabilities_hdu else np.nan
+
+        # TOTAL ESTIMADO: Suma y promedio de Estimación Original por mes
+        sprint_totals_estimated = []
+        for unified_sprint in unified_sprints_in_month:
+            sprint_data = month_data[month_data['Sprint_Unified'] == unified_sprint]
+            total_est = sprint_data['Estimación Original'].sum()
+            sprint_totals_estimated.append(total_est)
+
+        total_estimated_total = sum(sprint_totals_estimated) if sprint_totals_estimated else 0
+        total_estimated_avg = np.mean(sprint_totals_estimated) if sprint_totals_estimated else np.nan
+
         # 5. EFICIENCIA: Promedio de eficiencia de sprints del mes
         efficiency_avg = velocity_avg / self.team_size if self.team_size > 0 else np.nan
 
-        # 6. RETRABAJO: Promedio del mes
+        # 6. RETRABAJO (basado en Estimación Original): Puntos estimados de bugs / Total puntos estimados entregados
         bugs_delivered = delivered[delivered['Is_Bug']]
-        bug_points = bugs_delivered['Effective_Points'].sum()
-        total_points = delivered['Effective_Points'].sum()
+        bug_points_estimated = bugs_delivered['Estimación Original'].sum()
+        total_points_estimated = delivered['Estimación Original'].sum()
 
-        if total_points > 0:
-            rework = (bug_points / total_points) * 100
+        if total_points_estimated > 0:
+            rework = (bug_points_estimated / total_points_estimated) * 100
         else:
             rework = np.nan
+
+        # 6b. RETRABAJO PUNTOS LOGRADOS: Puntos logrados de bugs / Total puntos logrados
+        bug_points_achieved = bugs_delivered['Puntos Logrados'].sum()
+        total_points_achieved = delivered['Puntos Logrados'].sum()
+
+        if total_points_achieved > 0:
+            rework_achieved = (bug_points_achieved / total_points_achieved) * 100
+        else:
+            rework_achieved = np.nan
 
         return {
             'Month': month,
@@ -279,11 +373,17 @@ class MetricsCalculator:
             'Throughput_Avg': throughput_avg,
             'Velocity_Total': velocity_total,
             'Velocity_Avg': velocity_avg,
+            'Total_Estimated_Total': total_estimated_total,
+            'Total_Estimated_Avg': total_estimated_avg,
             'Cycle_Time_Avg': cycle_time_avg,
             'Cycle_Time_Median': cycle_time_median,
+            'Cycle_Time_HDU_Avg': cycle_time_hdu_avg,
+            'Cycle_Time_HDU_Median': cycle_time_hdu_median,
             'Predictability': predictability,
+            'Predictability_HDU': predictability_hdu,
             'Efficiency': efficiency_avg,
             'Rework': rework,
+            'Rework_Achieved': rework_achieved,
             'Total_Tasks': len(month_data),
             'Delivered_Tasks': throughput_total
         }
@@ -337,6 +437,7 @@ class MetricsCalculator:
         avg_predictability = self.sprint_metrics['Predictability'].mean()
         avg_efficiency = self.sprint_metrics['Efficiency'].mean()
         avg_rework = self.sprint_metrics['Rework'].mean()
+        avg_rework_achieved = self.sprint_metrics['Rework_Achieved'].mean()
 
         # Mejor y peor sprint por throughput
         best_sprint = self.sprint_metrics.loc[self.sprint_metrics['Throughput'].idxmax()]
@@ -351,6 +452,7 @@ class MetricsCalculator:
             'avg_predictability': avg_predictability,
             'avg_efficiency': avg_efficiency,
             'avg_rework': avg_rework,
+            'avg_rework_achieved': avg_rework_achieved,
             'best_sprint': {
                 'name': best_sprint['Sprint'],
                 'throughput': int(best_sprint['Throughput'])
