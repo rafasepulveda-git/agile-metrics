@@ -238,9 +238,6 @@ class DataProcessor:
 
         initial_count = len(self.df)
 
-        # Filtrar solo sprints completados
-        self.df = self.df[self.df['Sprint_Completed'] == True]
-
         # Filtrar tareas con sprint válido
         self.df = self.df[self.df['Sprint'].notna() & (self.df['Sprint'] != 'nan')]
 

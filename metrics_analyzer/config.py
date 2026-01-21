@@ -22,6 +22,9 @@ DEFAULT_SPRINT_MAPPING: Dict[str, str] = {
     'Sprint 7': 'Octubre',
     'Sprint 8': 'Octubre',
     'Sprint 9': 'Noviembre',
+    'Sprint 10': 'Noviembre',
+    'Sprint 11': 'Diciembre',
+    'Sprint 12': 'Diciembre',
 }
 
 # Estados que indican entrega para equipos PRODUCTIVOS
@@ -90,7 +93,6 @@ REQUIRED_COLUMNS: List[str] = [
     'Estimación Original',
     'Fecha Inicio',
     'Sprint',
-    'Sprint Completed?'
 ]
 
 # Columnas opcionales (deseables pero no críticas)
@@ -188,3 +190,26 @@ HOLIDAYS: List[str] = [
     '2025-12-08',  # Inmaculada Concepción
     '2025-12-25',  # Navidad
 ]
+
+# =============================================================================
+# CONFIGURACIÓN PARA PROCESAMIENTO BATCH
+# =============================================================================
+
+# Equipos que usan DoD extendido (En Desarrollo)
+# Estos equipos utilizan DELIVERY_STATES_DEVELOPMENT en lugar de DELIVERY_STATES_PRODUCTIVE
+DEVELOPMENT_TEAMS: List[str] = [
+    'FIDREN',
+    'FIDSIN_2_0',
+    'P2W',
+]
+
+# Tamaño de equipo por defecto cuando no se especifica
+DEFAULT_TEAM_SIZE: int = 5
+
+# Configuración del procesamiento batch
+BATCH_CONFIG: Dict[str, any] = {
+    'file_pattern': 'Backlog_Planning_*_All_Tasks_*.xlsx',
+    'team_name_regex': r'Backlog_Planning_(.+?)_All_Tasks_',
+    'output_filename': 'Metricas_Consolidadas_Equipos.xlsx',
+    'summary_sheet_name': 'Resumen Comparativo',
+}

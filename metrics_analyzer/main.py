@@ -17,13 +17,17 @@ from config import (
     VERSION,
     DEFAULT_SPRINT_MAPPING,
     DELIVERY_DATE_COLUMNS_PRODUCTIVE,
-    DELIVERY_DATE_COLUMNS_DEVELOPMENT
+    DELIVERY_DATE_COLUMNS_DEVELOPMENT,
+    BATCH_CONFIG,
+    DEVELOPMENT_TEAMS
 )
 from data_loader import load_and_validate_data
 from data_processor import process_data
 from metrics_calculator import MetricsCalculator
 from visualizations import generate_dashboards
 from report_generator import generate_excel_report
+from batch_processor import BatchProcessor
+from batch_report_generator import generate_batch_report
 from utils import (
     setup_logging,
     parse_sprint_mapping,
@@ -54,34 +58,93 @@ def get_args() -> argparse.Namespace:
         epilog="""
 Ejemplos de uso:
 
-  # Uso básico con gráficos clásicos (v1, por defecto)
+  # Analizar un archivo individual
   python main.py --input mi_archivo.xlsx
 
-  # Usar gráficos mejorados (v2: control charts, box plots, gauges)
+  # Usar gráficos mejorados (v2)
   python main.py --input mi_archivo.xlsx --chart-version v2
 
-  # Con mapeo de sprints personalizado
-  python main.py --input datos.xlsx --sprint-map "Sprint 2:Julio,Sprint 3:Agosto"
+  # Procesamiento batch de múltiples equipos
+  python main.py batch --folder ./datos/
 
-  # Generar solo Excel (sin gráficos)
-  python main.py --input datos.xlsx --excel-only
-
-  # Modo verbose para debugging
-  python main.py --input datos.xlsx --verbose
+  # Batch con tamaños de equipo personalizados
+  python main.py batch --folder ./datos/ --team-sizes "Equipo1:5,Equipo2:7"
         """
     )
 
-    parser.add_argument(
-        '--input',
-        '-i',
+    # Subparsers para comandos
+    subparsers = parser.add_subparsers(dest='command', help='Comandos disponibles')
+
+    # ========== Comando: batch ==========
+    batch_parser = subparsers.add_parser(
+        'batch',
+        help='Procesar múltiples archivos de equipos en una carpeta',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=f"""
+Ejemplos de uso:
+
+  # Procesar todos los archivos en una carpeta
+  python main.py batch --folder ./datos/
+
+  # Con directorio de salida específico
+  python main.py batch --folder ./datos/ --output ./reportes/
+
+  # Con mapeo de sprints personalizado
+  python main.py batch --folder ./datos/ --sprint-map "Sprint 2:Julio,Sprint 3:Agosto"
+
+  # Con tamaños de equipo personalizados
+  python main.py batch --folder ./datos/ --team-sizes "FIDSIN:6,Auto3P:5"
+
+Equipos En Desarrollo (usan DoD extendido con estados 9-13):
+  {', '.join(DEVELOPMENT_TEAMS)}
+
+Los demás equipos se consideran Productivos (estados 11-13).
+        """
+    )
+
+    batch_parser.add_argument(
+        '--folder', '-f',
         type=str,
         required=True,
+        help='Carpeta con archivos Excel de equipos'
+    )
+
+    batch_parser.add_argument(
+        '--output', '-o',
+        type=str,
+        default='.',
+        help='Directorio de salida para el reporte consolidado'
+    )
+
+    batch_parser.add_argument(
+        '--sprint-map',
+        type=str,
+        default=None,
+        help='Mapeo de sprints a meses en formato "Sprint 2:Julio,Sprint 3:Agosto"'
+    )
+
+    batch_parser.add_argument(
+        '--verbose', '-v',
+        action='store_true',
+        help='Modo verbose (mostrar logs detallados)'
+    )
+
+    batch_parser.add_argument(
+        '--team-sizes',
+        type=str,
+        default=None,
+        help='Tamaños de equipos en formato "Equipo1:5,Equipo2:7"'
+    )
+
+    # ========== Argumentos para modo individual (sin subcomando) ==========
+    parser.add_argument(
+        '--input', '-i',
+        type=str,
         help='Archivo Excel de Monday.com a analizar'
     )
 
     parser.add_argument(
-        '--output',
-        '-o',
+        '--output', '-o',
         type=str,
         default='.',
         help='Directorio de salida para los reportes (por defecto: directorio actual)'
@@ -107,8 +170,7 @@ Ejemplos de uso:
     )
 
     parser.add_argument(
-        '--verbose',
-        '-v',
+        '--verbose', '-v',
         action='store_true',
         help='Modo verbose (mostrar logs detallados)'
     )
@@ -118,10 +180,16 @@ Ejemplos de uso:
         type=str,
         choices=['v1', 'v2'],
         default='v1',
-        help='Versión de gráficos a usar: v1 (clásicos) o v2 (mejorados con control charts, box plots, etc.)'
+        help='Versión de gráficos a usar: v1 (clásicos) o v2 (mejorados)'
     )
 
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    # Validar que si no es batch, debe tener --input
+    if args.command is None and args.input is None:
+        parser.error("Se requiere --input para análisis individual o usar 'batch --folder' para procesamiento múltiple")
+
+    return args
 
 
 def prompt_team_type() -> str:
@@ -355,19 +423,111 @@ def print_final_report(
     print("=" * 60)
 
 
-def main() -> int:
+def run_batch(args: argparse.Namespace) -> int:
     """
-    Función principal del programa.
+    Ejecuta el procesamiento batch de múltiples archivos.
+
+    Args:
+        args: Argumentos parseados.
 
     Returns:
         Código de salida (0 = éxito, 1 = error).
     """
-    # Parsear argumentos
-    args = get_args()
+    print_section_header(f"PROCESAMIENTO BATCH DE MÉTRICAS v{VERSION}", "=")
 
-    # Configurar logging
-    setup_logging(verbose=args.verbose)
+    try:
+        # Parsear team_sizes si se proporciona
+        team_sizes = {}
+        if args.team_sizes:
+            for pair in args.team_sizes.split(','):
+                if ':' in pair:
+                    team, size = pair.split(':')
+                    team_sizes[team.strip()] = int(size.strip())
 
+        # Parsear sprint_mapping
+        sprint_mapping = None
+        if args.sprint_map:
+            sprint_mapping = parse_sprint_mapping(args.sprint_map)
+
+        # Crear procesador batch
+        print_section_header("PASO 1: Descubrimiento de Archivos")
+        processor = BatchProcessor(
+            folder_path=args.folder,
+            team_sizes=team_sizes,
+            sprint_mapping=sprint_mapping,
+            verbose=args.verbose
+        )
+
+        # Procesar todos los archivos
+        print_section_header("PASO 2: Procesamiento de Equipos")
+        results = processor.process_all()
+
+        # Verificar resultados exitosos
+        successful_results = processor.get_successful_results()
+        if not successful_results:
+            print_error("No se procesaron equipos exitosamente")
+            return 1
+
+        # Generar reporte consolidado
+        print_section_header("PASO 3: Generación de Reporte Consolidado")
+        output_dir = Path(args.output)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        output_filename = BATCH_CONFIG.get('output_filename', 'Metricas_Consolidadas_Equipos.xlsx')
+        output_path = str(output_dir / output_filename)
+
+        generate_batch_report(successful_results, output_path)
+
+        # Resumen final
+        print_section_header("PROCESO COMPLETADO", "=")
+        size = Path(output_path).stat().st_size
+        print_success(f"Reporte generado: {output_path} ({format_file_size(size)})")
+        print_info(f"Equipos procesados exitosamente: {len(successful_results)}/{len(results)}")
+
+        # Mostrar resumen por equipo
+        print("\nResumen por equipo:")
+        for r in sorted(successful_results, key=lambda x: x.team_name):
+            print_info(f"  {r.team_name} ({r.team_type}): {r.summary.get('total_delivered', 0)} tareas entregadas")
+
+        # Mostrar equipos fallidos
+        failed = processor.get_failed_results()
+        if failed:
+            print_warning("\nEquipos con errores:")
+            for r in failed:
+                print_error(f"  {r.team_name}: {r.error_message}")
+
+        print("\n" + "=" * 60)
+        print("Para más detalles, revise el archivo Excel generado.")
+        print("=" * 60)
+
+        return 0
+
+    except FileNotFoundError as e:
+        print_error(f"Carpeta no encontrada: {e}")
+        logger.exception("FileNotFoundError")
+        return 1
+
+    except ValueError as e:
+        print_error(f"Error de validación: {e}")
+        logger.exception("ValueError")
+        return 1
+
+    except Exception as e:
+        print_error(f"Error inesperado: {e}")
+        logger.exception("Unexpected error in batch processing")
+        return 1
+
+
+def run_analyze(args: argparse.Namespace) -> int:
+    """
+    Ejecuta el análisis de un solo archivo (modo individual).
+
+    Args:
+        args: Argumentos parseados.
+
+    Returns:
+        Código de salida (0 = éxito, 1 = error).
+    """
     try:
         # Banner inicial
         print_section_header(f"ANALIZADOR DE MÉTRICAS DE PERFORMANCE ÁGIL v{VERSION}", "=")
@@ -473,6 +633,26 @@ def main() -> int:
         print_error(f"Error inesperado: {e}")
         logger.exception("Unexpected error")
         return 1
+
+
+def main() -> int:
+    """
+    Función principal del programa.
+
+    Returns:
+        Código de salida (0 = éxito, 1 = error).
+    """
+    # Parsear argumentos
+    args = get_args()
+
+    # Configurar logging
+    setup_logging(verbose=args.verbose)
+
+    # Despachar al comando correspondiente
+    if args.command == 'batch':
+        return run_batch(args)
+    else:
+        return run_analyze(args)
 
 
 if __name__ == '__main__':
