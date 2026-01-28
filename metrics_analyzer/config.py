@@ -62,6 +62,48 @@ FEATURE_TYPES: List[str] = ['HDU', 'Solicitud']
 # Tipos de tarea que son bugs
 BUG_TYPES: List[str] = ['Bug']
 
+# =============================================================================
+# CONFIGURACIÓN DE TIPOS DE TAREAS PARA REPORTES
+# =============================================================================
+
+# Tipos de tareas principales a trackear en reportes
+# Se crearán columnas en el reporte para cada tipo especificado aquí
+TASK_TYPES_TO_TRACK: List[str] = [
+    'HDU',
+    'Bug',
+    'Solicitud',
+    'Spike',
+    'Tech',
+    'Backlog'
+]
+
+# Normalización de nombres de tipos de tareas (alias)
+# Mapea variantes a un nombre estándar: 'variante' -> 'nombre_estándar'
+TASK_TYPE_ALIASES: Dict[str, str] = {
+    'HdU': 'HDU',           # HdU se normaliza a HDU
+    'hdu': 'HDU',           # hdu se normaliza a HDU
+    'bug': 'Bug',           # bug se normaliza a Bug
+    'solicitud': 'Solicitud',
+    'spike': 'Spike',
+    'tech': 'Tech',
+    'backlog': 'Backlog'
+}
+
+# Si es True, el sistema detectará automáticamente tipos de tareas no configurados
+# y los agregará dinámicamente a los reportes bajo la categoría "Otros"
+AUTO_DETECT_TASK_TYPES: bool = True
+
+# Orden de presentación de columnas de tipos de tareas en reportes
+# Los tipos no listados aquí aparecerán al final en orden alfabético
+TASK_TYPE_DISPLAY_ORDER: List[str] = [
+    'HDU',
+    'Solicitud',
+    'Bug',
+    'Spike',
+    'Tech',
+    'Backlog'
+]
+
 # Umbrales para clasificación
 THRESHOLDS: Dict[str, float] = {
     'predictability_good': 70,
@@ -146,6 +188,20 @@ EXCEL_CONFIG: Dict[str, any] = {
 
 # Número de sprints por mes (por defecto)
 SPRINTS_PER_MONTH: int = 2
+
+# =============================================================================
+# CONFIGURACIÓN DE FECHAS DE SPRINTS
+# =============================================================================
+
+# Fecha de referencia: Sprint 3 termina el viernes 15 de agosto de 2025
+SPRINT_REFERENCE_NUMBER: int = 3
+SPRINT_REFERENCE_END_DATE: str = '2025-08-15'  # Viernes
+
+# Duración de cada sprint en días
+SPRINT_DURATION_DAYS: int = 14  # 2 semanas
+
+# Día de la semana en que terminan los sprints (0=Lunes, 4=Viernes)
+SPRINT_END_DAY_OF_WEEK: int = 4  # Viernes
 
 # Sufijos que indican tareas copiadas (a excluir)
 COPY_SUFFIXES: List[str] = ['(copy)', '(copia)', '(Copy)', '(Copia)']

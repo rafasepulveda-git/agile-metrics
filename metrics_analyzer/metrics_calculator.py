@@ -9,6 +9,7 @@ import logging
 from typing import Dict, List, Optional
 import pandas as pd
 import numpy as np
+from utils import get_task_types_to_track
 
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,11 @@ class MetricsCalculator:
         self.sprint_metrics: Optional[pd.DataFrame] = None
         self.month_metrics: Optional[pd.DataFrame] = None
 
+        # Determinar tipos de tareas a trackear (dinámico basado en datos y configuración)
+        self.task_types_to_track = get_task_types_to_track(df, 'Tipo Tarea')
+
         logger.info(f"Calculador inicializado con {len(df)} tareas y equipo de {team_size} personas")
+        logger.info(f"Tipos de tareas detectados: {', '.join(self.task_types_to_track)}")
 
     def calculate_all_metrics(self) -> None:
         """Calcula todas las métricas (sprint y mes)."""
@@ -96,17 +101,14 @@ class MetricsCalculator:
         # 1. THROUGHPUT: Número de tareas entregadas
         throughput = len(delivered)
 
-        # 2. VELOCITY: Puntos completados en el sprint
-        # Prioridad 1: Si hay datos en "Puntos Logrados" para el sprint, usar suma total
-        # Prioridad 2: Si no hay "Puntos Logrados", usar Estimación Original de tareas entregadas
-        puntos_logrados_disponibles = sprint_data['Puntos Logrados'].notna().sum()
+        # 2. VELOCITY: Suma de:
+        #    - Estimación Original de tareas que llegaron al DoD (entregadas)
+        #    - Puntos Logrados de tareas que NO llegaron al DoD (no entregadas)
+        not_delivered = sprint_data[~sprint_data['Is_Delivered']]
 
-        if puntos_logrados_disponibles > 0:
-            # Hay datos de Puntos Logrados: usar todos los puntos logrados del sprint
-            velocity = sprint_data['Puntos Logrados'].sum()
-        else:
-            # No hay Puntos Logrados: usar Estimación Original de solo tareas entregadas
-            velocity = delivered['Estimación Original'].sum()
+        velocity_delivered = delivered['Estimación Original'].sum()
+        velocity_not_delivered = not_delivered['Puntos Logrados'].fillna(0).sum()
+        velocity = velocity_delivered + velocity_not_delivered
 
         # 3. CYCLE TIME: Promedio y mediana
         cycle_times = delivered['Cycle_Time_Days'].dropna()
@@ -157,14 +159,28 @@ class MetricsCalculator:
         else:
             rework = np.nan
 
-        # 6b. RETRABAJO PUNTOS LOGRADOS: Puntos logrados de bugs / Total puntos logrados
-        bug_points_achieved = bugs_delivered['Puntos Logrados'].sum()
-        total_points_achieved = delivered['Puntos Logrados'].sum()
-
-        if total_points_achieved > 0:
-            rework_achieved = (bug_points_achieved / total_points_achieved) * 100
+        # 6b. RETRABAJO SOBRE VELOCITY (basado en Estimación Original):
+        # Puntos de historia de bugs entregados / Velocity
+        # Usa Estimación Original de bugs entregados dividido por el velocity total del sprint
+        if velocity > 0:
+            rework_achieved = (bug_points_estimated / velocity) * 100
         else:
             rework_achieved = np.nan
+
+        # 6c. RETRABAJO SOBRE VELOCITY (basado en Puntos Logrados/Efectivos):
+        # Puntos logrados o entregados de bugs / Velocity
+        # Para cada bug, usa Puntos Logrados si existe, sino Estimación Original
+        bug_points_effective = 0
+        for _, bug_row in bugs_delivered.iterrows():
+            if pd.notna(bug_row['Puntos Logrados']):
+                bug_points_effective += bug_row['Puntos Logrados']
+            else:
+                bug_points_effective += bug_row['Estimación Original']
+
+        if velocity > 0:
+            rework_velocity = (bug_points_effective / velocity) * 100
+        else:
+            rework_velocity = np.nan
 
         # Obtener el mes si está disponible
         month = sprint_data['Month'].iloc[0] if 'Month' in sprint_data.columns else None
@@ -172,7 +188,14 @@ class MetricsCalculator:
         # Crear descripción de sprints originales si hay múltiples
         original_sprints_str = ', '.join(sorted(original_sprints)) if original_sprints is not None and len(original_sprints) > 1 else None
 
-        return {
+        # Conteo dinámico de tareas entregadas por tipo
+        task_type_counts = {}
+        for task_type in self.task_types_to_track:
+            count = len(delivered[delivered['Tipo Tarea'] == task_type])
+            task_type_counts[f'{task_type}_Delivered'] = count
+
+        # Construir diccionario de retorno
+        result = {
             'Sprint': sprint,
             'Original_Sprints': original_sprints_str,  # Nuevo campo
             'Month': month,
@@ -188,17 +211,25 @@ class MetricsCalculator:
             'Efficiency': efficiency,
             'Rework': rework,
             'Rework_Achieved': rework_achieved,
+            'Rework_Velocity': rework_velocity,
             'Total_Tasks': len(sprint_data),
             'Delivered_Tasks': throughput,
+        }
+
+        # Agregar conteos de tipos de tareas dinámicamente
+        result.update(task_type_counts)
+
+        # Agregar campos adicionales
+        result.update({
             'Bug_Points_Estimated': bug_points_estimated,
-            'Bug_Points_Achieved': bug_points_achieved,
             'Total_Points_Estimated': total_points_estimated,
-            'Total_Points_Achieved': total_points_achieved,
             'Committed_Points': committed_points,
             'Delivered_Points': delivered_points,
             'Committed_Points_HDU': committed_points_hdu,
             'Delivered_Points_HDU': delivered_points_hdu
-        }
+        })
+
+        return result
 
     def _calculate_month_metrics(self) -> pd.DataFrame:
         """
@@ -249,13 +280,12 @@ class MetricsCalculator:
         for unified_sprint in unified_sprints_in_month:
             sprint_data = month_data[month_data['Sprint_Unified'] == unified_sprint]
             sprint_delivered = sprint_data[sprint_data['Is_Delivered']]
+            sprint_not_delivered = sprint_data[~sprint_data['Is_Delivered']]
 
-            # Usar misma lógica que en cálculo por sprint
-            puntos_logrados_disponibles = sprint_data['Puntos Logrados'].notna().sum()
-            if puntos_logrados_disponibles > 0:
-                velocity = sprint_data['Puntos Logrados'].sum()
-            else:
-                velocity = sprint_delivered['Estimación Original'].sum()
+            # Velocity = Estimación Original de entregadas + Puntos Logrados de no entregadas
+            velocity_delivered = sprint_delivered['Estimación Original'].sum()
+            velocity_not_delivered = sprint_not_delivered['Puntos Logrados'].fillna(0).sum()
+            velocity = velocity_delivered + velocity_not_delivered
 
             sprint_velocities.append(velocity)
 
@@ -356,14 +386,28 @@ class MetricsCalculator:
         else:
             rework = np.nan
 
-        # 6b. RETRABAJO PUNTOS LOGRADOS: Puntos logrados de bugs / Total puntos logrados
-        bug_points_achieved = bugs_delivered['Puntos Logrados'].sum()
-        total_points_achieved = delivered['Puntos Logrados'].sum()
-
-        if total_points_achieved > 0:
-            rework_achieved = (bug_points_achieved / total_points_achieved) * 100
+        # 6b. RETRABAJO SOBRE VELOCITY (basado en Estimación Original):
+        # Puntos de historia de bugs entregados / Velocity total del mes
+        # Usa Estimación Original de bugs entregados dividido por el velocity total del mes
+        if velocity_total > 0:
+            rework_achieved = (bug_points_estimated / velocity_total) * 100
         else:
             rework_achieved = np.nan
+
+        # 6c. RETRABAJO SOBRE VELOCITY (basado en Puntos Logrados/Efectivos):
+        # Puntos logrados o entregados de bugs / Velocity
+        # Para cada bug, usa Puntos Logrados si existe, sino Estimación Original
+        bug_points_effective = 0
+        for _, bug_row in bugs_delivered.iterrows():
+            if pd.notna(bug_row['Puntos Logrados']):
+                bug_points_effective += bug_row['Puntos Logrados']
+            else:
+                bug_points_effective += bug_row['Estimación Original']
+
+        if velocity_total > 0:
+            rework_velocity = (bug_points_effective / velocity_total) * 100
+        else:
+            rework_velocity = np.nan
 
         return {
             'Month': month,
@@ -384,6 +428,7 @@ class MetricsCalculator:
             'Efficiency': efficiency_avg,
             'Rework': rework,
             'Rework_Achieved': rework_achieved,
+            'Rework_Velocity': rework_velocity,
             'Total_Tasks': len(month_data),
             'Delivered_Tasks': throughput_total
         }
@@ -438,12 +483,21 @@ class MetricsCalculator:
         avg_efficiency = self.sprint_metrics['Efficiency'].mean()
         avg_rework = self.sprint_metrics['Rework'].mean()
         avg_rework_achieved = self.sprint_metrics['Rework_Achieved'].mean()
+        avg_rework_velocity = self.sprint_metrics['Rework_Velocity'].mean()
 
         # Mejor y peor sprint por throughput
         best_sprint = self.sprint_metrics.loc[self.sprint_metrics['Throughput'].idxmax()]
         worst_sprint = self.sprint_metrics.loc[self.sprint_metrics['Throughput'].idxmin()]
 
-        return {
+        # Conteo dinámico de tareas entregadas por tipo
+        delivered_tasks = self.df[self.df['Is_Delivered']]
+        task_type_summary = {}
+        for task_type in self.task_types_to_track:
+            count = len(delivered_tasks[delivered_tasks['Tipo Tarea'] == task_type])
+            task_type_summary[f'{task_type.lower()}_delivered'] = count
+
+        # Construir diccionario base
+        result = {
             'total_sprints': total_sprints,
             'total_delivered': int(total_delivered),
             'avg_throughput': avg_throughput,
@@ -453,6 +507,7 @@ class MetricsCalculator:
             'avg_efficiency': avg_efficiency,
             'avg_rework': avg_rework,
             'avg_rework_achieved': avg_rework_achieved,
+            'avg_rework_velocity': avg_rework_velocity,
             'best_sprint': {
                 'name': best_sprint['Sprint'],
                 'throughput': int(best_sprint['Throughput'])
@@ -463,6 +518,11 @@ class MetricsCalculator:
             },
             'team_size': self.team_size
         }
+
+        # Agregar conteos de tipos de tareas
+        result.update(task_type_summary)
+
+        return result
 
     def print_summary(self) -> None:
         """Imprime un resumen ejecutivo de las métricas."""

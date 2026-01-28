@@ -7,11 +7,11 @@ una hoja resumen comparativa.
 
 import logging
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Set
 import pandas as pd
 import xlsxwriter
 
-from config import EXCEL_CONFIG, THRESHOLDS, BATCH_CONFIG
+from config import EXCEL_CONFIG, THRESHOLDS, BATCH_CONFIG, TASK_TYPE_DISPLAY_ORDER
 from batch_processor import TeamResult
 
 
@@ -40,6 +40,48 @@ class BatchReportGenerator:
 
         if not self.results:
             raise ValueError("No hay resultados exitosos para generar reporte")
+
+        # Detectar todos los tipos de tareas presentes en los resultados
+        self.task_types = self._detect_task_types()
+        logger.info(f"Tipos de tareas detectados: {', '.join(self.task_types)}")
+
+    def _detect_task_types(self) -> List[str]:
+        """
+        Detecta todos los tipos de tareas presentes en los resultados de los equipos.
+
+        Returns:
+            Lista ordenada de tipos de tareas.
+        """
+        all_task_types: Set[str] = set()
+
+        # Recolectar todos los tipos de tareas del summary de cada equipo
+        for result in self.results:
+            summary = result.summary
+            # Buscar claves que terminen en '_delivered'
+            for key in summary.keys():
+                if key.endswith('_delivered') and key != 'total_delivered':
+                    # Extraer el nombre del tipo (ej: 'hdu_delivered' -> 'HDU')
+                    task_type = key.replace('_delivered', '').upper()
+                    # Primera letra mayúscula, resto como está (ej: 'HDU', 'Bug', 'Solicitud')
+                    if task_type.lower() in ['hdu', 'bug', 'solicitud', 'spike', 'tech', 'backlog']:
+                        # Casos especiales de capitalización
+                        if task_type.lower() == 'hdu':
+                            task_type = 'HDU'
+                        else:
+                            task_type = task_type.capitalize()
+                    all_task_types.add(task_type)
+
+        # Ordenar según TASK_TYPE_DISPLAY_ORDER, luego alfabéticamente
+        ordered_types = []
+        for task_type in TASK_TYPE_DISPLAY_ORDER:
+            if task_type in all_task_types:
+                ordered_types.append(task_type)
+                all_task_types.remove(task_type)
+
+        # Agregar los restantes en orden alfabético
+        ordered_types.extend(sorted(all_task_types))
+
+        return ordered_types
 
     def generate(self) -> str:
         """
@@ -149,10 +191,12 @@ class BatchReportGenerator:
         sheet_name = BATCH_CONFIG.get('summary_sheet_name', 'Resumen Comparativo')
         worksheet = self.workbook.add_worksheet(sheet_name)
 
-        # Configurar anchos
+        # Configurar anchos dinámicos
+        num_task_type_cols = len(self.task_types)
+        last_col_letter = chr(ord('O') + num_task_type_cols)  # O es la columna base + tipos de tareas
         worksheet.set_column('A:A', 25)  # Equipo
         worksheet.set_column('B:B', 15)  # Tipo
-        worksheet.set_column('C:P', 14)  # Métricas
+        worksheet.set_column(f'C:{last_col_letter}', 14)  # Métricas
 
         row = 0
 
@@ -160,14 +204,18 @@ class BatchReportGenerator:
         worksheet.write(row, 0, 'RESUMEN COMPARATIVO DE EQUIPOS', self.formats['title'])
         row += 2
 
-        # Headers
+        # Headers dinámicos basados en tipos de tareas detectados
         headers = [
             'Equipo', 'Tipo DoD', 'Tamaño', 'Sprints',
             'Throughput Prom.', 'Velocity Prom.', 'Cycle Time Prom.',
             'Predictibilidad (%)', 'Predict. HDU (%)',
             'Eficiencia', 'Retrabajo (%)',
-            'Total Entregadas', 'Mejor Sprint', 'Peor Sprint'
+            'Total Entregadas'
         ]
+        # Agregar columnas de tipos de tareas dinámicamente
+        headers.extend(self.task_types)
+        # Agregar columnas finales
+        headers.extend(['Mejor Sprint', 'Peor Sprint'])
 
         for col, header in enumerate(headers):
             worksheet.write(row, col, header, self.formats['header'])
@@ -208,11 +256,21 @@ class BatchReportGenerator:
 
             worksheet.write(row, 11, summary.get('total_delivered', 0), self.formats['integer'])
 
+            # Escribir columnas de tipos de tareas dinámicamente
+            col_idx = 12
+            for task_type in self.task_types:
+                key = f'{task_type.lower()}_delivered'
+                value = summary.get(key, 0)
+                worksheet.write(row, col_idx, value, self.formats['integer'])
+                col_idx += 1
+
+            # Columnas finales (Mejor/Peor Sprint)
             best_sprint = summary.get('best_sprint', {})
-            worksheet.write(row, 12, f"{best_sprint.get('name', 'N/A')} ({best_sprint.get('throughput', 0)})", self.formats['text'])
+            worksheet.write(row, col_idx, f"{best_sprint.get('name', 'N/A')} ({best_sprint.get('throughput', 0)})", self.formats['text'])
+            col_idx += 1
 
             worst_sprint = summary.get('worst_sprint', {})
-            worksheet.write(row, 13, f"{worst_sprint.get('name', 'N/A')} ({worst_sprint.get('throughput', 0)})", self.formats['text'])
+            worksheet.write(row, col_idx, f"{worst_sprint.get('name', 'N/A')} ({worst_sprint.get('throughput', 0)})", self.formats['text'])
 
             row += 1
 
@@ -231,6 +289,13 @@ class BatchReportGenerator:
             avg_rework = sum(r.summary.get('avg_rework', 0) for r in self.results) / num_teams
             total_delivered = sum(r.summary.get('total_delivered', 0) for r in self.results)
 
+            # Calcular totales de cada tipo de tarea dinámicamente
+            task_type_totals = {}
+            for task_type in self.task_types:
+                key = f'{task_type.lower()}_delivered'
+                total = sum(r.summary.get(key, 0) for r in self.results)
+                task_type_totals[task_type] = total
+
             worksheet.write(row, 4, avg_throughput, self.formats['number'])
             worksheet.write(row, 5, avg_velocity, self.formats['number'])
             worksheet.write(row, 6, avg_cycle_time, self.formats['number'])
@@ -238,6 +303,12 @@ class BatchReportGenerator:
             worksheet.write(row, 9, avg_eff, self.formats['number'])
             worksheet.write(row, 10, avg_rework, self._get_rework_format(avg_rework))
             worksheet.write(row, 11, total_delivered, self.formats['integer'])
+
+            # Escribir totales de tipos de tareas dinámicamente
+            col_idx = 12
+            for task_type in self.task_types:
+                worksheet.write(row, col_idx, task_type_totals[task_type], self.formats['integer'])
+                col_idx += 1
 
     def _create_team_sheet(self, result: TeamResult) -> None:
         """
@@ -250,9 +321,11 @@ class BatchReportGenerator:
         sheet_name = result.team_name[:31]
         worksheet = self.workbook.add_worksheet(sheet_name)
 
-        # Configurar anchos
+        # Configurar anchos dinámicos
+        num_task_type_cols = len(self.task_types)
+        last_col_letter = chr(ord('Q') + num_task_type_cols)  # Q es la columna base + tipos de tareas (agregamos Retrabajo Vel.)
         worksheet.set_column('A:A', 15)
-        worksheet.set_column('B:P', 14)
+        worksheet.set_column(f'B:{last_col_letter}', 14)
 
         row = 0
 
@@ -262,13 +335,16 @@ class BatchReportGenerator:
         worksheet.write(row, 0, f'Tipo DoD: {result.team_type} | Tamaño: {result.team_size}', self.formats['subtitle'])
         row += 2
 
-        # Headers de métricas por sprint
+        # Headers dinámicos de métricas por sprint
         headers = [
             'Sprint', 'Mes', 'Throughput', 'Velocity', 'Total Estimado',
             'Cycle Time Prom.', 'Cycle Time Med.', 'CT HDU Prom.', 'CT HDU Med.',
             'Predictibilidad (%)', 'Predict. HDU (%)', 'Eficiencia',
-            'Retrabajo Est. (%)', 'Retrabajo Log. (%)', 'Total Tareas', 'Entregadas'
+            'Retrabajo Est. (%)', 'Retrabajo Log. (%)', 'Retrabajo Vel. (%)',
+            'Total Tareas', 'Entregadas'
         ]
+        # Agregar columnas de tipos de tareas dinámicamente
+        headers.extend(self.task_types)
 
         for col, header in enumerate(headers):
             worksheet.write(row, col, header, self.formats['header'])
@@ -323,9 +399,21 @@ class BatchReportGenerator:
             worksheet.write(row, col, rework_ach, self._get_rework_format(rework_ach))
             col += 1
 
+            rework_vel = sprint_row.get('Rework_Velocity', 0)
+            worksheet.write(row, col, rework_vel, self._get_rework_format(rework_vel))
+            col += 1
+
             worksheet.write(row, col, sprint_row.get('Total_Tasks', 0), self.formats['integer'])
             col += 1
             worksheet.write(row, col, sprint_row.get('Delivered_Tasks', 0), self.formats['integer'])
+            col += 1
+
+            # Escribir columnas de tipos de tareas dinámicamente
+            for task_type in self.task_types:
+                key = f'{task_type}_Delivered'
+                value = sprint_row.get(key, 0)
+                worksheet.write(row, col, value, self.formats['integer'])
+                col += 1
 
             row += 1
 

@@ -22,7 +22,9 @@ from utils import (
     print_warning,
     print_info,
     calculate_business_days,
-    extract_sprint_number
+    extract_sprint_number,
+    normalize_task_type,
+    calculate_sprint_end_date
 )
 
 
@@ -104,6 +106,11 @@ class DataProcessor:
             if col in self.df.columns:
                 self.df[col] = self.df[col].astype(str).str.strip()
 
+        # Normalizar tipos de tareas (HdU -> HDU, bug -> Bug, etc.)
+        if 'Tipo Tarea' in self.df.columns:
+            self.df['Tipo Tarea'] = self.df['Tipo Tarea'].apply(normalize_task_type)
+            logger.debug("Tipos de tareas normalizados según configuración")
+
     def _convert_data_types(self) -> None:
         """Convierte columnas a los tipos de datos apropiados."""
         logger.debug("Convirtiendo tipos de datos...")
@@ -175,7 +182,10 @@ class DataProcessor:
         Calcula el cycle time para una tarea en días hábiles.
 
         Solo calcula para tareas en estado DoD.
-        Fecha DoD: Prioridad 1: Fecha Ready for Production, Prioridad 2: Fecha Término
+
+        Lógica de fecha de finalización:
+        - Estados 11, 12, 13: Fecha Ready for Production, o fecha fin de sprint si no existe
+        - Estado 9: Fecha Certificado QA, o Fecha Término, o fecha fin de sprint si no existe
 
         Args:
             row: Fila del DataFrame.
@@ -188,14 +198,54 @@ class DataProcessor:
             return np.nan
 
         start = row.get('Fecha Inicio')
+        estado = row.get('Estado', '')
+        sprint = row.get('Sprint', '')
 
-        # Determinar fecha de DoD con prioridad
-        # Prioridad 1: Fecha Ready for Production
-        end = row.get('Fecha Ready for Production')
+        # Determinar fecha de finalización según el estado
+        end = None
 
-        # Prioridad 2: Si no existe o es NaN, usar Fecha Término
+        # Para estados 11, 12, 13 (Ready for Product Release, Validación a Producción, Producción)
+        if estado in ['11. Ready for Product Release', '12. Validación a Producción', '13. Producción']:
+            # Prioridad 1: Fecha Ready for Production
+            end = row.get('Fecha Ready for Production')
+
+            # Prioridad 2: Si no existe, usar fecha fin de sprint
+            if pd.isna(end):
+                end = calculate_sprint_end_date(sprint)
+
+        # Para estado 9 (Certificado QA)
+        elif estado == '9. Certificado QA':
+            # Prioridad 1: Fecha Certificado QA
+            end = row.get('Fecha Certificado QA')
+
+            # Prioridad 2: Fecha Término
+            if pd.isna(end):
+                end = row.get('Fecha Término')
+
+            # Prioridad 3: Fecha fin de sprint
+            if pd.isna(end):
+                end = calculate_sprint_end_date(sprint)
+
+        # Para estado 10 (UAT) - agregar por si acaso
+        elif estado == '10. UAT':
+            # Prioridad 1: Fecha UAT
+            end = row.get('Fecha UAT')
+
+            # Prioridad 2: Fecha Término
+            if pd.isna(end):
+                end = row.get('Fecha Término')
+
+            # Prioridad 3: Fecha fin de sprint
+            if pd.isna(end):
+                end = calculate_sprint_end_date(sprint)
+
+        # Si aún no tenemos fecha final, intentar con las columnas genéricas
         if pd.isna(end):
-            end = row.get('Fecha Término')
+            end = row.get('Fecha Ready for Production')
+            if pd.isna(end):
+                end = row.get('Fecha Término')
+            if pd.isna(end):
+                end = calculate_sprint_end_date(sprint)
 
         if pd.isna(start) or pd.isna(end):
             return np.nan

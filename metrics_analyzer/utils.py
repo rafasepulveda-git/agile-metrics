@@ -7,9 +7,22 @@ de datos comunes utilizados en todo el proyecto.
 
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Set
 import pandas as pd
-from config import COPY_SUFFIXES, HOLIDAYS
+
+logger = logging.getLogger(__name__)
+from config import (
+    COPY_SUFFIXES,
+    HOLIDAYS,
+    TASK_TYPE_ALIASES,
+    TASK_TYPES_TO_TRACK,
+    TASK_TYPE_DISPLAY_ORDER,
+    AUTO_DETECT_TASK_TYPES,
+    SPRINT_REFERENCE_NUMBER,
+    SPRINT_REFERENCE_END_DATE,
+    SPRINT_DURATION_DAYS,
+    SPRINT_END_DAY_OF_WEEK
+)
 
 
 # Configurar logging
@@ -400,3 +413,177 @@ def extract_sprint_number(sprint_name: str) -> str:
 
     # Si no coincide con el patrón, retornar el nombre original
     return sprint_str
+
+
+def normalize_task_type(task_type: str) -> str:
+    """
+    Normaliza el nombre de un tipo de tarea según los alias configurados.
+
+    Ejemplos:
+        'HdU' -> 'HDU'
+        'bug' -> 'Bug'
+        'HDU' -> 'HDU' (sin cambios)
+
+    Args:
+        task_type: Tipo de tarea original.
+
+    Returns:
+        Tipo de tarea normalizado.
+    """
+    if pd.isna(task_type):
+        return 'Sin Tipo'
+
+    task_type_str = str(task_type).strip()
+
+    # Buscar en aliases
+    if task_type_str in TASK_TYPE_ALIASES:
+        return TASK_TYPE_ALIASES[task_type_str]
+
+    # Si no hay alias, retornar tal cual
+    return task_type_str
+
+
+def get_task_types_from_dataframe(df: pd.DataFrame, task_type_column: str = 'Tipo Tarea') -> List[str]:
+    """
+    Obtiene todos los tipos de tareas únicos presentes en un DataFrame.
+
+    Args:
+        df: DataFrame con datos de tareas.
+        task_type_column: Nombre de la columna con tipos de tareas.
+
+    Returns:
+        Lista de tipos de tareas únicos (normalizados).
+    """
+    if task_type_column not in df.columns:
+        return []
+
+    # Obtener tipos únicos y normalizarlos
+    unique_types = set()
+    for task_type in df[task_type_column].dropna().unique():
+        normalized = normalize_task_type(task_type)
+        unique_types.add(normalized)
+
+    return sorted(unique_types)
+
+
+def get_task_types_to_track(df: pd.DataFrame = None, task_type_column: str = 'Tipo Tarea') -> List[str]:
+    """
+    Obtiene la lista de tipos de tareas a trackear en reportes, en orden de presentación.
+
+    Si AUTO_DETECT_TASK_TYPES es True y se proporciona un DataFrame, detectará tipos adicionales.
+
+    Args:
+        df: DataFrame opcional con datos de tareas para detección automática.
+        task_type_column: Nombre de la columna con tipos de tareas.
+
+    Returns:
+        Lista ordenada de tipos de tareas a incluir en reportes.
+    """
+    # Comenzar con los tipos configurados
+    types_to_track = set(TASK_TYPES_TO_TRACK)
+
+    # Si está habilitada la detección automática y hay un DataFrame
+    if AUTO_DETECT_TASK_TYPES and df is not None:
+        detected_types = get_task_types_from_dataframe(df, task_type_column)
+        types_to_track.update(detected_types)
+
+    # Ordenar según TASK_TYPE_DISPLAY_ORDER, luego alfabéticamente
+    ordered_types = []
+
+    # Primero agregar los que están en el orden de presentación
+    for task_type in TASK_TYPE_DISPLAY_ORDER:
+        if task_type in types_to_track:
+            ordered_types.append(task_type)
+            types_to_track.remove(task_type)
+
+    # Luego agregar los restantes en orden alfabético
+    ordered_types.extend(sorted(types_to_track))
+
+    return ordered_types
+
+
+def extract_sprint_number_value(sprint_name: str) -> Optional[int]:
+    """
+    Extrae el número de un sprint como entero.
+
+    Ejemplos:
+        'Sprint 07 FIDSIN' -> 7
+        'Sprint 3' -> 3
+        'Sprint 10' -> 10
+
+    Args:
+        sprint_name: Nombre del sprint.
+
+    Returns:
+        Número del sprint como entero, o None si no se puede extraer.
+    """
+    import re
+
+    if pd.isna(sprint_name):
+        return None
+
+    sprint_str = str(sprint_name).strip()
+
+    # Buscar patrón: "Sprint" seguido de números
+    match = re.search(r'Sprint\s*(\d+)', sprint_str, re.IGNORECASE)
+
+    if match:
+        return int(match.group(1))
+
+    return None
+
+
+def calculate_sprint_end_date(sprint_name: str) -> Optional[datetime]:
+    """
+    Calcula la fecha de finalización de un sprint.
+
+    Primero intenta extraer la fecha directamente del nombre del sprint si está
+    en formato "Sprint X [DD/MMM - DD/MMM]".
+
+    Si no está disponible, usa como referencia que Sprint 3 termina el 15 de agosto
+    de 2025 (viernes) y que los sprints duran 2 semanas y siempre terminan en viernes.
+
+    Args:
+        sprint_name: Nombre del sprint (ej: 'Sprint 5', 'Sprint 1 [08/Sep - 19/Sep]').
+
+    Returns:
+        Fecha de finalización del sprint, o None si no se puede calcular.
+    """
+    import re
+    from dateutil import parser
+
+    if pd.isna(sprint_name):
+        return None
+
+    sprint_str = str(sprint_name).strip()
+
+    # Intentar extraer fecha del nombre del sprint (formato: [DD/MMM - DD/MMM])
+    # Ejemplo: "Sprint 1 [08/Sep - 19/Sep]" -> 19/Sep
+    date_range_match = re.search(r'\[.*?-\s*(\d{1,2}/\w+)\]', sprint_str)
+    if date_range_match:
+        end_date_str = date_range_match.group(1)
+        try:
+            # Parsear la fecha (asumiendo año 2025 si no está especificado)
+            # dateutil.parser es flexible y puede manejar formatos como "19/Sep"
+            parsed_date = parser.parse(end_date_str, default=datetime(2025, 1, 1))
+            return parsed_date
+        except Exception as e:
+            logger.debug(f"No se pudo parsear fecha del sprint '{sprint_name}': {e}")
+
+    # Si no se pudo extraer fecha del nombre, calcular basándose en el número
+    sprint_number = extract_sprint_number_value(sprint_name)
+
+    if sprint_number is None:
+        return None
+
+    # Fecha de referencia
+    reference_date = datetime.strptime(SPRINT_REFERENCE_END_DATE, '%Y-%m-%d')
+
+    # Calcular diferencia de sprints
+    sprint_diff = sprint_number - SPRINT_REFERENCE_NUMBER
+
+    # Calcular fecha sumando/restando semanas
+    days_diff = sprint_diff * SPRINT_DURATION_DAYS
+    sprint_end_date = reference_date + timedelta(days=days_diff)
+
+    return sprint_end_date
